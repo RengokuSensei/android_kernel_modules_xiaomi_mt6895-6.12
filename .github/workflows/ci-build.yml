@@ -1,0 +1,83 @@
+name: Build Xaga 6.12 Kernel & Modules
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      modules_only:
+        description: 'Build modules only'
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    name: Compile 6.12 Modules
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Maximize Build Space
+        uses: easimon/maximize-build-space@v10
+        with:
+          root-reserve-mb: 10240
+          swap-size-mb: 4096
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+
+      - name: Checkout Modules Repository
+        uses: actions/checkout@v4
+        with:
+          path: modules
+
+      - name: Checkout Kernel Base Repository
+        uses: actions/checkout@v4
+        with:
+          repository: RengokuSensei/android_kernel_oddo_mt6895
+          path: kernel
+
+      - name: Install Host Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison flex libssl-dev libelf-dev libncurses-dev \
+            device-tree-compiler python3 python3-pip make gcc g++ \
+            tar gzip xz-utils zstd ccache libarchive-tools curl wget
+
+      - name: Download AOSP Clang Toolchain
+        run: |
+          mkdir -p $HOME/clang
+          echo "Fetching Android AOSP Clang (clang-r536225)..."
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz -O /tmp/clang.tar.gz || \
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r522817.tar.gz -O /tmp/clang.tar.gz
+          tar -xzf /tmp/clang.tar.gz -C $HOME/clang
+          rm -f /tmp/clang.tar.gz
+          $HOME/clang/bin/clang --version
+
+      - name: Compile 6.12 Modules via build.sh
+        run: |
+          cd modules
+          chmod +x build.sh
+          export K="$GITHUB_WORKSPACE/kernel"
+          export M="$GITHUB_WORKSPACE/modules/kernel_device_modules-6.12"
+          export LLVM_PREFIX="$HOME/clang"
+          export JOBS=$(nproc)
+          ./build.sh --modules-only
+
+      - name: Collect Compiled Kernel Modules (.ko)
+        if: always()
+        run: |
+          mkdir -p output/modules
+          find modules -name "*.ko" -exec cp {} output/modules/ \;
+          echo "Total compiled modules:"
+          ls -1 output/modules | wc -l
+
+      - name: Upload Kernel Modules Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xaga-6.12-kernel-modules
+          path: output/modules/
+          if-no-files-found: error
