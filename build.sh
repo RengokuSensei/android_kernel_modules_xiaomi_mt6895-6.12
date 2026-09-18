@@ -404,6 +404,14 @@ pack_vendor() {
        "$OUT/drivers/iio/buffer/industrialio-triggered-buffer.ko" \
        "$OUT/drivers/iio/buffer/kfifo_buf.ko" \
        lib/modules/
+    # Stage MediaTek vendor firmware blobs (GZ, TEE, SSPM, MCUPM, PI_IMG)
+    local FW_DIR="$SCRIPT_DIR/vendor_firmware"
+    if [ -d "$FW_DIR" ]; then
+        mkdir -p lib/firmware vendor/firmware
+        find "$FW_DIR" -type f ! -name '.*' ! -name 'README.md' -exec cp -f {} lib/firmware/ \; 2>/dev/null || true
+        find "$FW_DIR" -type f ! -name '.*' ! -name 'README.md' -exec cp -f {} vendor/firmware/ \; 2>/dev/null || true
+    fi
+
     # xaga: official 5.10 modules carry no DWARF (40MB vs our 130MB for the
     # same 198 modules). Drop debug sections, keep .symtab + __ksymtab so
     # modinfo/depmod/insmod all still work (2026-08-10).
