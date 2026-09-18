@@ -98,12 +98,39 @@ All drivers are registered in Kleaf's `kernel/kleaf/mgk_64.bzl` and `BUILD.bazel
 
 ---
 
-## Known Gaps & Next Steps
+## Project Status
 
-1. **Fingerprint (`goodix_cap`):** ✅ Ported to 6.12 SPI APIs (PR #4). Needs real hardware testing with matching TEE user-space daemon.
-2. **Camera Sensor Bazel Registration:** 6 camera sensor drivers are present in `vendor/mediatek/kernel_modules/mtkcam/imgsensor/src-v4l2/common/xaga*/`; append sensor names to `src-v4l2/BUILD.bazel` in full MTK manifest builds.
-3. **Touchscreen Firmware:** `nt36672c` firmware binary must be present in the `/vendor/firmware` partition.
-4. **Stage 2 Android Boot (Vendor Blobs):** Recovery mode boots and displays cleanly. To reach full Android userspace (`/system` mount → Zygote), matching MediaTek 6.12 firmware images (`gz.img`, `sspm.img`, `mcupm.img`, `tee.img`) and vendor HAL binaries are required.
+### ✅ Completed
+
+| Item | Details |
+|------|---------|
+| **200+ Kernel Modules** | All OOT modules compile clean (`-Werror`), 0 undefined symbols |
+| **CI/CD Pipeline** | GitHub Actions: automated cloud compilation on every push ([Build #11 GREEN ✅](../../actions)) |
+| **Full Kernel Packaging** | CI supports full `Image.gz` + flashable `boot.img`/`vendor_boot.img`/`dtbo.img` packaging (trigger via `workflow_dispatch`) |
+| **Fingerprint Driver** | Goodix GF3626ZS9 ported to Linux 6.12 standard SPI APIs (PR #4, merged) |
+| **Display DRM Handoff** | Early boot display pipeline fix — MTCMOS power-on ordering + DSI clock preparation |
+| **Vendor Firmware Staging** | `vendor_firmware/` directory structure + `build.sh` auto-staging for `gz`/`tee`/`sspm`/`mcupm`/`pi_img` |
+| **Recovery Boot** | Verified on real hardware: boots into recovery with working display (2026-08-13) |
+| **Documentation** | README translated to English; STATUS/BRINGUP/xaga-drm-restore/xaga-log-capture translation in progress |
+
+### 🔧 Remaining Gaps
+
+| # | Gap | Severity | Notes |
+|---|-----|----------|-------|
+| 1 | **Fingerprint TEE daemon** | Non-blocking | `goodix_cap` kernel driver is ported; needs matching TEE user-space daemon + real hardware testing |
+| 2 | **Camera Sensor Bazel Registration** | Needs user env | 6 sensor drivers present in `src-v4l2/common/xaga*/`; append names to `src-v4l2/BUILD.bazel` in full MTK manifest builds |
+| 3 | **Touchscreen Firmware** | Needs device | `nt36672c` firmware binary must be placed in `/vendor/firmware` partition |
+| 4 | **DTS Makefile Registration** | Needs user env | DTBO list must be registered in `kernel/build` mgk rules (not possible in this tree alone) |
+| 5 | **Full Android Boot (Vendor Blobs)** | Current boundary | Recovery boots cleanly. Full Android userspace requires proprietary blobs: TEE/gz/mcupm/sspm firmware, vendor HAL binaries (camera, fingerprint TEE app, audio DSP), and system/vendor partition images |
+| 6 | **DSI Black Screen (LK not initializing)** | Under investigation | When LK skips DSI init, kernel must replicate full LK display pipeline — see STATUS.md §10 (rounds 16-23). Currently rolled back to 16:33 checkpoint |
+
+### 🗺️ Next Steps
+
+1. **Real device Android boot** — Integrate proprietary vendor blobs (TEE/GZ/SSPM/MCUPM firmware + vendor HAL binaries) and test full system boot beyond recovery
+2. **DSI re-init closure** — Complete "LK replica" display pipeline for cases where LK doesn't initialize DSI (MTCMOS → engine start → mutex/path config → FRAME_DONE)
+3. **KernelSU integration** — Add KernelSU module to the CI build pipeline for root support
+4. **User environment integration** — Register `xaga` in mgk DTBO rules, merge `vendor/mediatek` siblings, append 6 camera sensor names
+5. **Functional validation** — Module load chain verified (200+ ko, 707ms); next: `/sys/class/power_supply/` → charger → PD fast charging verification
 
 ---
 
