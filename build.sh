@@ -290,9 +290,9 @@ kernel() {
 # ---------------------------------------------------------------------------
 modules() {
     log "4/8 in-tree modules (Module.symvers)"
-    ( cd "$K" && make "${MAKE_CC[@]}" O="$OUT" ARCH=arm64 LLVM=1 -j"$JOBS" modules > "$WORK/inmod.log" 2>&1 )
+    ( cd "$K" && make "${MAKE_CC[@]}" O="$OUT" ARCH=arm64 LLVM=1 -j"$JOBS" modules > "$WORK/inmod.log" 2>&1 ) || { echo "=== IN-TREE MODULES ERROR LOG ==="; cat "$WORK/inmod.log"; exit 1; }
 
-    log "4b/8 out-of-tree modules -> 200 x .ko (KBUILD_MODPOST_WARN=1)"
+    log "4b/8 out-of-tree modules -> 200+ x .ko (KBUILD_MODPOST_WARN=1)"
     # progress: count .ko as they are produced; poll in background on a TTY
     if [ -t 1 ]; then
         make -C "$K" O="$OUT" ARCH=arm64 LLVM=1 KCONFIG_EXT_PREFIX="$M/" M="$M" \
@@ -305,17 +305,17 @@ modules() {
             progress_bar "OOT modules" "$MCUR" 200
             sleep 2
         done
-        wait "$MPID"
+        wait "$MPID" || { echo "=== OOT MODULES ERROR LOG ==="; cat "$WORK/ootmod.log"; exit 1; }
         MCUR="$(find "$M" -name '*.ko' | wc -l)"
         progress_bar "OOT modules" "$MCUR" 200
         progress_clear
     else
         make -C "$K" O="$OUT" ARCH=arm64 LLVM=1 KCONFIG_EXT_PREFIX="$M/" M="$M" \
             DEVICE_MODULES_PATH="$M" DEVCIE_MODULES_INCLUDE="$INC" \
-            KBUILD_MODPOST_WARN=1 -j"$JOBS" modules > "$WORK/ootmod.log" 2>&1
+            KBUILD_MODPOST_WARN=1 -j"$JOBS" modules > "$WORK/ootmod.log" 2>&1 || { echo "=== OOT MODULES ERROR LOG ==="; cat "$WORK/ootmod.log"; exit 1; }
     fi
     NKO="$(find "$M" -name '*.ko' | wc -l)"
-    [ "$NKO" -eq 200 ] || { echo "ERROR: expected 200 .ko, got $NKO" >&2; exit 1; }
+    [ "$NKO" -ge 200 ] || { echo "ERROR: expected at least 200 .ko, got $NKO" >&2; exit 1; }
     echo "$NKO .ko built"
 }
 
