@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config GOODIX_CAP_FINGERPRINT
+	tristate "Goodix GF3626ZS9 SPI Fingerprint Sensor Driver"
+	depends on SPI
+	help
+	  This enables support for Goodix GF3626ZS9 SPI fingerprint sensor.
+	  Say M here if you want to build it as a module.

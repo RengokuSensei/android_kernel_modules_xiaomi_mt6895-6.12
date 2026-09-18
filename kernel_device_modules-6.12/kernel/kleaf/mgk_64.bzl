@@ -1278,6 +1278,7 @@ mgk_64_kleaf_device_modules = [
     "//kernel_device_modules-{}/drivers/input/touchscreen:double_click".format(kernel_version),
     "//kernel_device_modules-{}/drivers/input/touchscreen:xiaomi_touch".format(kernel_version),
     "//kernel_device_modules-{}/drivers/input/touchscreen/NVT36672C:nt36672c".format(kernel_version),
+    "//kernel_device_modules-{}/drivers/input/fingerprint/goodix_cap:goodix_cap".format(kernel_version),
     "//kernel_device_modules-{}/drivers/input/misc/aw8697_haptic:haptic".format(kernel_version),
     "//kernel_device_modules-{}/drivers/gpu/drm/panel:leds-ktz8863a".format(kernel_version),
     "//kernel_device_modules-{}/drivers/gpu/drm/panel:panel-l16-42-02-0a-dsc-vdo".format(kernel_version),
