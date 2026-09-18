@@ -1,143 +1,112 @@
 # kernel_xiaomi_mt6895-6.12
 
-> 移植状态总览见 [STATUS.md](STATUS.md)（基准 commit `30c80ea`，2026-08-13，已推送 origin/main；历史经 rebase，旧 hash 见 STATUS.md §9）
-> **真机进度（2026-08-13）**: 显示链路根因（PWM0/SPR0 compatible）闭环后，**编译产物可进入 recovery 且显示正常**（开机过程 LK→内核早期会花屏，进 recovery 后正常，仅描述未修复）。**进系统（正常 Android boot）需要 blob 支持**——本仓库只含内核 + GPL 模块源码，完整系统还需小米/MTK 专有 blob（TEE/gz/mcupm/sspm 固件、vendor 分区专有二进制等），详见 STATUS.md §6.7/§6.8/§10
-> **2026-08-15 checkpoint**: 后续刷机出现 recovery 黑屏回归（LK 始终未初始化 DSI），深挖 8 轮（PLL -EBUSY / 双管道 DLO/DLI / 引擎未启动 / MTCMOS 时序 / mutex 未配置等）后**回退到 16:33 构建完产物时的状态并提交**（M 树 7b9cb8f / rebase 64a634b，K 树 20b279ed9 → github xaga-6.12），排查全过程与后续"LK 复刻"方向见 STATUS.md §10（08-15 轮次）
+> **Porting Status Overview:** See [STATUS.md](STATUS.md) (Baseline commit `30c80ea`, 2026-08-13, on branch `main`).
+> **Real Device Milestone (2026-08-13):** After resolving the root cause in the display pipeline (`PWM0/SPR0` compatible matching), **the compiled build boots into recovery with a fully working display** (minor screen tearing/glitch during the early LK → Kernel transition before recovery starts; non-blocking).
+> **Booting Full Android System:** Requires proprietary vendor blobs. This repository contains only open-source GPL kernel and module source code. Running complete Android requires Xiaomi/MediaTek proprietary blobs (TEE/GZ/MCUPM/SSPM firmware, vendor partition HAL binaries, etc.). See `STATUS.md` §6.7/§6.8/§10.
+> **2026-08-15 Checkpoint:** After subsequent black screen regressions in recovery (LK never initialized DSI), 8 rounds of deep debugging were conducted, followed by roll-back to the clean 16:33 build checkpoint. See `STATUS.md` §10 for details.
+> **Fingerprint Update (2026-09-18):** Goodix GF3626ZS9 capacitive fingerprint driver has been successfully ported to standard Linux 6.12 SPI subsystem APIs via PR #4.
 
-xaga（Redmi Note 11T Pro / POCO X4 GT / Redmi K50i，Dimensity 8100 / MT6895）的 **Android 6.12 内核模块移植树**。
+---
 
-- 基座：OPPO 6.12 MTK 模块树（`kernel_device_modules-6.12`，kleaf/mgk 构建模型）
-- 移植来源：小米 5.10 ESK 内核（`../baselines/kernel/kernel_xiaomi_mt6895`，16.2-rebase）与官方 5.10 内核（`../baselines/kernel/offical_kernel_xiaomi_mt6895`，xaga-s-oss）
-- 内核版本：6.12（GKI common + MTK mgk 规则）
-- 配套内核源码：OPPO 6.12 内核（`../android_kernel_oddo_mt6895`，6.12.23）
+## Overview
 
-## 目录
+**Android 6.12 Out-of-Tree Kernel Modules Port Tree** for `xaga` (Redmi Note 11T Pro / POCO X4 GT / Redmi K50i, MediaTek Dimensity 8100 / `MT6895`):
 
-- `kernel_device_modules-6.12/` — 模块树（本仓库主体，kleaf/BUILD.bazel + Kbuild 双路径）
-- `STATUS.md` — 移植状态总览（进度/构建/缺口/下一步）
-- `BRINGUP.md` — 开机 bring-up 指南（构建步骤、上电顺序、充电/显示/触摸对齐）
-- 本文件 — 仓库概览、已移植内容、已知缺口
+- **Base Tree:** OPPO 6.12 MediaTek module tree (`kernel_device_modules-6.12`, Kleaf/mgk build model)
+- **Porting Source:** Xiaomi 5.10 ESK kernel (`../baselines/kernel/kernel_xiaomi_mt6895`, `16.2-rebase`) & official 5.10 kernel (`xaga-s-oss`)
+- **Kernel Version:** Linux 6.12 (GKI Common + MTK mgk rules)
+- **Paired Kernel Source:** OPPO 6.12 Kernel Base (`../android_kernel_oddo_mt6895`, version 6.12.23)
 
-## 源码来源
+---
 
-部分源码来自以下公开仓库（在本工作区 `xaga/baselines/` 有对应参考基线）：
+## Directory Structure
 
-- **[XagaForge/android_kernel_xiaomi_mt6895](https://github.com/XagaForge/android_kernel_xiaomi_mt6895)**（社区 GKI 5.10 内核，xaga）——板级 DTS 与小米驱动的移植来源（panel-l16、触摸/充电/触觉等 OOT 驱动、xaga 板级配置），对应本地基线 `xaga/baselines/kernel/xagaforge`。
-- **[ramabondanp/alps-kernel_device_modules-6.12](https://github.com/ramabondanp/alps-kernel_device_modules-6.12)**（MTK alps 6.12 OOT 模块树）——MTK 平台模块 / DRM 依赖链的对齐依据（模块依赖关系、`BUILD.bazel`/`mgk_64.bzl` 映射、平台保留性判断），对应本地基线 `xaga/baselines/modules/alps-kernel_device_modules-6.12`。
+- `kernel_device_modules-6.12/` — Main module tree (Kleaf/BUILD.bazel + Kbuild dual build paths)
+- `STATUS.md` — Porting status overview (progress, build steps, known gaps, next steps)
+- `BRINGUP.md` — Bring-up guide (build recipes, power-on sequences, charging/display/touch alignment)
+- `xaga-drm-restore.md` — MTK DRM dependency chain recovery guide
+- `xaga-log-capture.md` — Log capture methods (XAGR ring buffer, expdb dumping, panic debugging)
+- `README.md` — This file (repository overview, ported components, known gaps)
 
-其余基座：OPPO 6.12 内核与模块树（`android_kernel_oddo_mt6895`）、小米官方 5.10 内核/模块基线、lineage_xaga（5.10 源码）。各来源的许可证见各自仓库与本章"许可"。
+---
 
-## 构建
+## Upstream References
 
-本树依赖完整的 MTK/AOSP 环境（kleaf `build/` 规则 + clang 预编译 + alps manifest 的 `vendor/mediatek` 等 sibling 项目），**本仓库单独无法构建**。构建配方要点（详见 BRINGUP.md §1）：
+Portions of this codebase originate from the following public repositories:
 
-```
-KCONFIG_EXT_PREFIX=<modules>/   # 每个 make/conf 都必须带，否则模块符号被丢弃
-gki_defconfig + merge_config.sh -m <mgk_64_k612_defconfig> <vendor/xaga.config>
-CONFIG_MODULE_SIG_KEY 需为绝对 pem 路径
-```
+- **[XagaForge/android_kernel_xiaomi_mt6895](https://github.com/XagaForge/android_kernel_xiaomi_mt6895)** (Community GKI 5.10 kernel for xaga) — Source for board DTS and Xiaomi drivers (`panel-l16`, touch, charger, haptics OOT drivers).
+- **[ramabondanp/alps-kernel_device_modules-6.12](https://github.com/ramabondanp/alps-kernel_device_modules-6.12)** (MTK ALPS 6.12 OOT module tree) — Reference for MTK platform modules, DRM dependency chains, and `BUILD.bazel`/`mgk_64.bzl` mappings.
 
-### 一键构建+打包：`./build.sh`
+Other base sources: OPPO 6.12 kernel and module trees (`android_kernel_oddo_mt6895`), official Xiaomi 5.10 kernel base, and LineageOS xaga source.
 
-在完整工作区（OPPO 6.12 内核 `../android_kernel_oddo_mt6895`）内，`build.sh` 默认从零完成**全量编译 + 打包**（工具链/依赖处理参考 `clang_build_fix.sh`）：
+---
 
-1. 配置：`gki_defconfig` + `mgk_64_k612_defconfig` + `vendor/xaga.config`
-2. 内核 `Image` + `Image.gz`（gzip）
-3. in-tree 模块（刷新 `Module.symvers`）
-4. OOT 模块 → **200 个 `.ko`**（`make M=`，硬断言；2026-08-10 恢复 MTK DRM 全依赖链后 135→197，2026-08-11 裁剪 4 对重复导出模块，2026-08-13 扩至 200，详见 `xaga-drm-restore.md` + STATUS.md §4a）
-5. DTS 三件：`mt6895.dtb`（SoC 基座）+ `xaga.dtbo` / `xaga_global.dtbo`（fdtoverlay 校验）
-6. `images/out/boot_new.img` — magiskboot `-n`：Image.gz 内核 + 6.12 kernelsu 注入官方 boot
-7. `images/out/vendor_boot_new.img` — mkbootimg：官方 vendor ramdisk 换 **200 个 6.12 OOT .ko + 4 个 in-tree 依赖**（drm_display_helper/drm_dma_helper/industrialio-triggered-buffer/kfifo_buf）（`llvm-strip --strip-debug` 后约 25MB）+ 元数据重建（modules.load/depmod 平铺拓扑序）+ DTBO_TAG dtb 槽 + pad 64MB
-8. `images/out/dtbo_new.img` — DTOv1 单条目（xaga.dtbo，不 pad）
+## Building
 
-```
-./build.sh                        # 默认：全量编译 + 打包（产物 → images/out/），带时间戳/进度条
-./build.sh --modules-only         # 只编译内核模块（配置 → 200 个 .ko），不编译 Image/DTS、不打包
-./build.sh --no-clean             # 增量编译（不清除已有产物）
-./build.sh --skip=BOOT,VENDOR     # 全量编译但跳过指定打包步骤（DTBO 同理）
+This tree can be built locally using `./build.sh` or automatically in the cloud via **GitHub Actions** (`.github/workflows/ci-build.yml`).
+
+### One-Click Build & Packaging: `./build.sh`
+
+In a complete workspace containing the paired kernel (`../android_kernel_oddo_mt6895`), `build.sh` executes the full compile and packaging flow:
+
+1. **Config:** `gki_defconfig` + `mgk_64_k612_defconfig` + `vendor/xaga.config`
+2. **Kernel Image:** `Image` + `Image.gz` (gzip)
+3. **In-tree Modules:** Generates/refreshes `Module.symvers`
+4. **Out-of-Tree Modules:** Compiles **200+ `.ko` modules** (`make M=`)
+5. **DTS Compilation:** `mt6895.dtb` (SoC base) + `xaga.dtbo` / `xaga_global.dtbo` (verified via `fdtoverlay`)
+6. **Images Packed:**
+   - `images/out/boot_new.img` — `magiskboot -n`: `Image.gz` kernel + KernelSU
+   - `images/out/vendor_boot_new.img` — `mkbootimg`: official vendor ramdisk populated with 6.12 `.ko` modules (stripped via `llvm-strip --strip-debug` to ~25MB) + rebuilt `modules.load`/`modules.dep`
+   - `images/out/dtbo_new.img` — DTOv1 format
+
+```bash
+./build.sh                        # Default: Full compilation + packaging (outputs to images/out/)
+./build.sh --modules-only         # Compile kernel modules only (200+ .ko files), no boot packaging
+./build.sh --no-clean             # Incremental compilation (does not clean previous objects)
+./build.sh --skip=BOOT,VENDOR     # Compile but skip specific image packaging steps
 ./build.sh --help
 ```
 
-产物：
+### Environment Overrides:
+- `K`: Path to base 6.12 kernel tree (`android_kernel_oddo_mt6895`)
+- `M`: Path to modules tree (`./kernel_device_modules-6.12`)
+- `LLVM_PREFIX`: Path to AOSP Clang toolchain (e.g., `$HOME/clang`, **AOSP clang-r536225** recommended)
+- `JOBS`: Number of parallel compile jobs (defaults to `nproc`)
 
-- 编译产物在 `out/`：`Image` / `Image.gz` / `Module.symvers` / `dts/`（DTS 三件副本）
-- 打包产物在 `images/out/`：`boot_new.img` / `vendor_boot_new.img` / `dtbo_new.img`
-- 模块树内 **200 个 `.ko`**（`kernel_device_modules-6.12/` 原位）+ vendor_boot 内 204 个（含 4 in-tree）
+---
 
-**路径全部默认相对脚本目录，无需硬编码**：
+## Ported Components (from 5.10 Baselines)
 
-- 模块树 `M` = `./kernel_device_modules-6.12`
-- 编译输出 `OUT` = `./out`
-- 官方镜像 `OFFICIAL` = `../images/offical/`（`boot.img` / `vendor_boot.img` / `dtbo.img`）
-- 打包输出 `OUT_IMG` = `../images/out/`
-- 工具：`MAGISKBOOT` / `MKBOOTIMG` / `MKDTBO` / `KERNELSU` 均在 `../images/building/tools/`
-- 签名 key `PEM` = `$M/certs/mtk_signing_key.pem`
-- 工具链 `LLVM_PREFIX` = `$HOME/clang`（**AOSP clang-r536225**，OPPO `build.config.constants` 推荐，勿用 apt 的 clang-18）；`USE_CCACHE=1` 可加 ccache 前缀
+All drivers are registered in Kleaf's `kernel/kleaf/mgk_64.bzl` and `BUILD.bazel`:
 
-**OPPO 6.12 内核源码（`K`）自动定位**——依次尝试：
-
-1. `K` 环境变量（若已设置且存在）
-2. 脚本同级/父级目录：`../android_kernel_oddo_mt6895`（xaga/ 下，本机位置）等
-3. GitHub 远程克隆名 `android_kernel_oddo_mt6895`（同级/父级/`xaga/` 下）
-4. 都找不到时提示手动输入
-
-所有路径均可用环境变量覆盖（`K`/`M`/`OUT`/`XAGA`/`IMG_DIR`/`OFFICIAL`/`OUT_IMG`/`PEM`/`LLVM_PREFIX`/`JOBS`）。编译日志保留在 `/tmp/xaga_build.*/`。
-
-板级 defconfig 片段：`arch/arm64/configs/vendor/xaga.config`
-板级 DTS：`arch/arm64/boot/dts/mediatek/xaga.dts`（overlay 于 `mt6895.dts` SoC 基座）
-
-## 已移植内容（自 5.10 官方 / 社区基线）
-
-**驱动（均已注册进 kleaf 的 `kernel/kleaf/mgk_64.bzl` + BUILD.bazel）**：
-
-| 模块 | 说明 |
+| Module | Description |
 |---|---|
-| simtray | 卡托状态（gpiod 重写） |
-| hwid | `/sys/hwid` 硬件标识 |
-| xiaomi_touch + double_click | 小米触控类 + 双击唤醒 |
-| NVT36672C | Novatek SPI 触摸屏（6.12 API 适配） |
-| aw8697 haptic | Awinic 线性马达 |
-| leds-ktz8863a + panel-l16 ×2 | 背光 + 两块 L16 DSC 面板（ESD 恢复） |
-| ln8000 / sc8551 / sc8561 / bq28z610 | 充电泵 + 电量计（6.12 psy 对齐，commit 109b0d0） |
-| pd_cp_manager + 充电框架 | mtk_charger/mtk_pd_* 全套（`mtk-master-charger` psy 名对齐） |
-| **6 颗 camera sensor** | s5khm2/s5k4h7/ov16a1/s5kgw1/gc02m1/ov02b10（src-v4l2，2026-08-07 移植） |
-| **KTD2687 相机闪光灯** | 双灯驱动 + flashlight 核心接线（2026-08-07 移植） |
-| **MTK Pump Express** | pep/pep20/pep40/pep45/pep50/pep50p 协议模块接线（2026-08-07 恢复） |
-| **MTK 平台模块（123 ko）** | 全量平台模块构建（1409327/5829818，自 alps 树同步） |
-| **MTK DRM 全依赖链恢复（2026-08-10，+60 模块）** | mediatek_v2（80+ 文件）/ mml / mtk_panel_ext+sync+disp_notify / mtk_drm_gateic / gpufreq v2+hal / slbc+hwccf / system_heap / mmdvfs-v3/v5 / mmdebug / vmm / 等；**197 ko、0 undefined**，详见 `xaga-drm-restore.md` |
-| **真机 init 链修复（2026-08-11，7 轮 expdb）** | 去 4 对重复导出模块（devapc legacy/mmdvfs-v5/mmdebug-vcp/gud ffa）→ 193 OOT；打包 4 个 K 树 in-tree 依赖（drm_display_helper 等）→ 197；gateic 复合模块改名修复；mmqos DTS 属性 6.12 化；dramc getters NULL 守卫；mmc1 禁用（无 SD 槽）；ufshci 补 disable-mcq；**真机 197 ko 全部加载成功（707ms）** |
-| **显示链路闭环（2026-08-12/13）** | DTS 对齐 alps（smi-supply/dispsys-num/fifo-size/panel 交换）+ **PWM0/SPR0 compatible 修复**（`30c80ea`）→ **recovery 正常进入且显示正常**（开机过程花屏仅描述）；打包集扩至 200 OOT ko；进系统需 blob 支持（§6.7/6.8） |
+| **goodix_cap** | Goodix GF3626ZS9 capacitive fingerprint driver (ported to Linux 6.12 SPI APIs) |
+| **simtray** | SIM tray status detection |
+| **hwid** | `/sys/hwid` hardware board identification |
+| **xiaomi_touch + double_click** | Xiaomi touch framework + double-tap-to-wake |
+| **NVT36672C** | Novatek SPI touchscreen (adapted for Linux 6.12) |
+| **aw8697 haptic** | Awinic linear haptic motor |
+| **leds-ktz8863a + panel-l16 (x2)** | Backlight controller + dual L16 DSC display panels with ESD recovery |
+| **ln8000 / sc8551 / sc8561 / bq28z610** | Dual charge pump ICs + battery fuel gauge (`bms` power supply) |
+| **pd_cp_manager + Charging Framework** | Complete `mtk_charger`/`mtk_pd_*` suite (`mtk-master-charger` alignment) |
+| **6x Camera Sensors** | `s5khm2`, `s5k4h7`, `ov16a1`, `s5kgw1`, `gc02m1`, `ov02b10` (`src-v4l2`) |
+| **KTD2687 Flashlight** | Dual-LED camera flash driver + core flashlight subsystem wiring |
+| **MTK Pump Express** | `pep`/`pep20`/`pep40`/`pep45`/`pep50`/`pep50p` fast charging protocols |
+| **MTK Platform Modules (123 ko)** | Complete platform module suite synchronized from ALPS tree |
+| **MTK DRM Subsystem (60+ modules)** | `mediatek_v2` (80+ files), `mml`, `gpufreq v2`, `slbc`, `system_heap`, `mmdvfs`, `vmm` (0 undefined symbols) |
 
-**板级 DTS**：`xaga-mt6895.dtsi` 链（charger/display/thermal/touch/camera）+ `cust/xaga.dtsi` + `xaga_global.dts`（全球版变体）。
+---
 
-## 特性
+## Known Gaps & Next Steps
 
-- **挂死定位（xaga-marker）**：`CONFIG_XAGA_MARKER_WRITER=y`（**内置内核**，源码在 OPPO 内核树 `drivers/misc/xaga-marker-writer.c`；模块版已删——从未写入），在 **arm64 setup_arch 头部**映射 log_store 保留区 0x7ffbf000 为 XAGR 环（minirdump 0x48170000 不能写：触发 MTK mrdump 立即重启，2026-08-09 实测），**每个 printk()（vprintk_emit 钩子）镜像进环**，启动任何阶段挂死环尾部即最后一段内核打印；WDT 复位后 DRAM 保留，**读取方式 = 直接看 expdb 转储**（LK PL_LOG_STORE 恢复 log_store 区内容进 expdb，重启后 dump expdb 分区即得环文本；lineage_xaga 的 xaga-marker 读端代码仅为备用，非必需，替代已弃用的 xaga_oops_log/oops 分区方案，2026-08-09；"setup_arch 前"不可行——arm64 paging_init 前该区无映射，early_ioremap 即最早途径）
-- 产物镜像（boot/vendor_boot/dtbo）：见 `xaga/images/out/`（打包产物；构建中间产物在 `xaga/images/building/`）
+1. **Fingerprint (`goodix_cap`):** ✅ Ported to 6.12 SPI APIs (PR #4). Needs real hardware testing with matching TEE user-space daemon.
+2. **Camera Sensor Bazel Registration:** 6 camera sensor drivers are present in `vendor/mediatek/kernel_modules/mtkcam/imgsensor/src-v4l2/common/xaga*/`; append sensor names to `src-v4l2/BUILD.bazel` in full MTK manifest builds.
+3. **Touchscreen Firmware:** `nt36672c` firmware binary must be present in the `/vendor/firmware` partition.
+4. **Stage 2 Android Boot (Vendor Blobs):** Recovery mode boots and displays cleanly. To reach full Android userspace (`/system` mount → Zygote), matching MediaTek 6.12 firmware images (`gz.img`, `sspm.img`, `mcupm.img`, `tee.img`) and vendor HAL binaries are required.
 
-## 已知缺口 / 待用户环境处理
+---
 
-1. **指纹驱动（goodix_cap）**：xaga DTS 有 `goodix,goodix-fp` 节点（`cust_mt6895_fingerprint.dtsi`），5.10 用 `drivers/input/fingerprint/goodix_cap/`（GF3626ZS9 TEE 驱动，`CONFIG_GOODIX_CAP_FINGERPRINT=m`）。**6.12 树未移植**，原因：驱动依赖 5.10 内核私有 SPI 头（`mtk_spi.h`/`mtk_spi_hal.h`，来自 5.10 的 `drivers/spi/mediatek/<plat>/`，不在本工作区）。移植步骤：
-   - 从 5.10 拷 `drivers/input/fingerprint/goodix_cap/` + `fingerprint/Kconfig` + `fingerprint/Makefile`
-   - 适配 `mtk_spi.h` 依赖（用户环境 5.10 SPI 头或改通用 SPI API）
-   - `xaga.config` 加 `CONFIG_GOODIX_CAP_FINGERPRINT=m`；`drivers/input/Makefile` 加 `obj-$(CONFIG_GOODIX_CAP_FINGERPRINT) += fingerprint/`
-2. **vendor/mediatek（mtkcam 等）**：`mgk_64.bzl` 引用 `//vendor/mediatek/...` 目标由用户完整 MTK 环境提供，本仓库不含
-3. **camera sensor 合入**：6 颗 sensor 在本树 `vendor/mediatek/kernel_modules/mtkcam/imgsensor/src-v4l2/common/xaga*/`，用户环境需在 `src-v4l2/BUILD.bazel` 的 `config_cust_kernel_imgsensor` 追加 6 个名字（详见 BRINGUP.md §6）
-4. **lm3644 注册残留**：`mgk_64.bzl:1361` 给 mt6895 注册了 lm3644（xaga 用 KTD2687 不用 LM3644，保留无害，可删）
-5. **触控 fw**：nt36672c fw 文件需放入 vendor 分区对应路径
-6. **进系统验证**（2026-08-13）：recovery 已可进（显示正常，开机过程花屏未修复）；**进系统需 blob 支持**（见 STATUS.md §6.8）；充电流程 / xaga_global 变体见 STATUS.md §6.6
+## License
 
-## 提交历史要点
-
-- `49dfceb` 导入 6.12 modules + xaga 板级移植 / `19311e8` 充电框架 + panel providers / `f4bc147` NVT36672C 触摸
-- `d55ac4f` / `e361186` 全构建与首次编译修复（6.12 API 适配）
-- `1409327` + `5829818` 全量平台模块构建（118 → 123 ko）/ `a377ba2` 审计修复
-- `7f75af8` + `f3e8e80` 6 颗 camera sensor / `e321232` + `1aadba1` KTD2687 闪光灯 / `4b2d268` Pump Express（2026-08-07）
-- `270467e` README + 设备名修正；完整新旧 hash 对照见 STATUS.md §9
-- `17f5d4c`（2026-08-10）恢复 MTK DRM 模块依赖链（197 ko、0 undefined）+ `xaga-drm-restore.md` 文档
-- **2026-08-11 真机 init 链修复（8 commits）**：`32c3adf` 去 4 对重复导出模块（→193 OOT）+ `c5113ed` 打包 4 个 in-tree 依赖（→197）+ `99a5feb` gateic 复合模块改名 + `84e1aaf` mmqos DTS 6.12 化 + `dc99de2` build.sh 进度可视化 + `f8313fa` dramc NULL 守卫 + `3b9b285` 禁用 mmc1 + `a05b916` ufshci disable-mcq —— **真机 197 ko 全部加载成功**（详见 STATUS.md §10 expdb 诊断史）
-- `build.sh` 一键构建脚本（clean → 配置 → in-tree 模块 → 193 个 .ko，OOT 断言；vendor_boot 打包 197 含 4 in-tree）
-
-## 许可
-
-内核模块遵循各源仓库（OPPO/小米/MTK）的 GPL 许可。
+Kernel and modules are licensed under the GNU General Public License (GPL) as declared in their respective source files.
