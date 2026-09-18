@@ -39,7 +39,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            bc bison flex libssl-dev libelf-dev libncurses-dev \
+            bc bison flex libssl-dev libelf-dev libdw-dev libncurses-dev \
             device-tree-compiler python3 python3-pip make gcc g++ \
             tar gzip xz-utils zstd ccache libarchive-tools curl wget \
             lz4 cpio unzip binutils-aarch64-linux-gnu
