@@ -8,13 +8,16 @@ on:
   workflow_dispatch:
     inputs:
       modules_only:
-        description: 'Build modules only'
+        description: 'Build modules only (false = full kernel Image + flashable boot/vendor_boot/dtbo packaging)'
         type: boolean
-        default: true
+        default: false
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    name: Compile 6.12 Modules
+    name: ${{ github.event.inputs.modules_only == 'true' && 'Compile 6.12 Modules' || 'Compile 6.12 Kernel & Images' }}
     runs-on: ubuntu-24.04
 
     steps:
@@ -50,7 +53,17 @@ jobs:
           git clone --depth=1 https://gitlab.com/kei-space/clang/r536225.git $HOME/clang
           $HOME/clang/bin/clang --version
 
-      - name: Compile 6.12 Modules via build.sh
+      - name: Fetch Base Images & Packaging Tools
+        if: ${{ github.event.inputs.modules_only != 'true' }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/assets"
+          gh release download base-assets-v1 -R "${{ github.repository }}" --dir "$GITHUB_WORKSPACE/assets"
+          chmod +x "$GITHUB_WORKSPACE/assets/magiskboot" "$GITHUB_WORKSPACE/assets/mkbootimg.py" "$GITHUB_WORKSPACE/assets/mkdtbo.py"
+          ls -lh "$GITHUB_WORKSPACE/assets"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Compile via build.sh
         run: |
           cd modules
           chmod +x build.sh
@@ -58,7 +71,22 @@ jobs:
           export M="$GITHUB_WORKSPACE/modules/kernel_device_modules-6.12"
           export LLVM_PREFIX="$HOME/clang"
           export JOBS=$(nproc)
-          ./build.sh --modules-only
+
+          if [ "${{ github.event.inputs.modules_only }}" == "true" ]; then
+            echo "Running modules-only compilation..."
+            ./build.sh --modules-only
+          else
+            echo "Running full kernel & image packaging build..."
+            export OFFICIAL="$GITHUB_WORKSPACE/assets"
+            export MAGISKBOOT="$GITHUB_WORKSPACE/assets/magiskboot"
+            export MKBOOTIMG="$GITHUB_WORKSPACE/assets/mkbootimg.py"
+            export MKDTBO="$GITHUB_WORKSPACE/assets/mkdtbo.py"
+            export KERNELSU="$GITHUB_WORKSPACE/assets/android16-6.12_kernelsu.ko"
+            export VENDOR_RAMDISK_LZ4="$GITHUB_WORKSPACE/assets/vendor_ramdisk_official_full.bin"
+            export OUT_IMG="$GITHUB_WORKSPACE/output/images"
+            mkdir -p "$OUT_IMG"
+            ./build.sh
+          fi
 
       - name: Collect Compiled Kernel Modules (.ko)
         if: always()
@@ -74,3 +102,20 @@ jobs:
           name: xaga-6.12-kernel-modules
           path: output/modules/
           if-no-files-found: error
+
+      - name: Collect Flashable Images
+        if: always() && github.event.inputs.modules_only != 'true'
+        run: |
+          mkdir -p output/images
+          [ -f modules/out/arch/arm64/boot/Image.gz ] && cp -v modules/out/arch/arm64/boot/Image.gz output/images/ || true
+          [ -d modules/out/dts ] && cp -v modules/out/dts/* output/images/ || true
+          echo "Flashable images produced:"
+          ls -lh output/images/
+
+      - name: Upload Flashable Images Artifact
+        if: always() && github.event.inputs.modules_only != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: xaga-6.12-flashable-images
+          path: output/images/
+          if-no-files-found: warn

@@ -1,0 +1,99 @@
+name: Release Xaga 6.12 Kernel & Images
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
+          df -h
+
+      - name: Checkout Modules Repository
+        uses: actions/checkout@v4
+        with:
+          path: modules
+
+      - name: Checkout Kernel Base Repository
+        uses: actions/checkout@v4
+        with:
+          repository: RengokuSensei/android_kernel_oddo_mt6895
+          ref: xaga-6.12
+          path: kernel
+
+      - name: Install Host Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison flex libssl-dev libelf-dev libdw-dev libncurses-dev \
+            device-tree-compiler python3 python3-pip make gcc g++ \
+            tar gzip xz-utils zstd ccache libarchive-tools curl wget \
+            lz4 cpio unzip zip binutils-aarch64-linux-gnu
+
+      - name: Fetch AOSP Clang Toolchain (r536225)
+        run: |
+          echo "Cloning AOSP Clang r536225..."
+          git clone --depth=1 https://gitlab.com/kei-space/clang/r536225.git $HOME/clang
+          $HOME/clang/bin/clang --version
+
+      - name: Fetch Base Images & Packaging Tools
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/assets"
+          gh release download base-assets-v1 -R "${{ github.repository }}" --dir "$GITHUB_WORKSPACE/assets"
+          chmod +x "$GITHUB_WORKSPACE/assets/magiskboot" "$GITHUB_WORKSPACE/assets/mkbootimg.py" "$GITHUB_WORKSPACE/assets/mkdtbo.py"
+          ls -lh "$GITHUB_WORKSPACE/assets"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Compile Full Kernel & Packaging via build.sh
+        run: |
+          cd modules
+          chmod +x build.sh
+          export K="$GITHUB_WORKSPACE/kernel"
+          export M="$GITHUB_WORKSPACE/modules/kernel_device_modules-6.12"
+          export LLVM_PREFIX="$HOME/clang"
+          export JOBS=$(nproc)
+          export OFFICIAL="$GITHUB_WORKSPACE/assets"
+          export MAGISKBOOT="$GITHUB_WORKSPACE/assets/magiskboot"
+          export MKBOOTIMG="$GITHUB_WORKSPACE/assets/mkbootimg.py"
+          export MKDTBO="$GITHUB_WORKSPACE/assets/mkdtbo.py"
+          export KERNELSU="$GITHUB_WORKSPACE/assets/android16-6.12_kernelsu.ko"
+          export VENDOR_RAMDISK_LZ4="$GITHUB_WORKSPACE/assets/vendor_ramdisk_official_full.bin"
+          export OUT_IMG="$GITHUB_WORKSPACE/release-dist"
+          mkdir -p "$OUT_IMG"
+          ./build.sh
+
+      - name: Prepare Release Bundle
+        run: |
+          mkdir -p release-bundle
+          # Package all compiled .ko modules into zip
+          mkdir -p /tmp/modules-stage
+          find modules -name "*.ko" -exec cp {} /tmp/modules-stage/ \;
+          cd /tmp/modules-stage
+          zip -9 -r "$GITHUB_WORKSPACE/release-bundle/xaga-6.12-modules-${{ github.ref_name }}.zip" .
+          cd "$GITHUB_WORKSPACE"
+
+          # Copy flashable images
+          [ -f release-dist/boot_new.img ] && cp release-dist/boot_new.img release-bundle/boot.img || true
+          [ -f release-dist/vendor_boot_new.img ] && cp release-dist/vendor_boot_new.img release-bundle/vendor_boot.img || true
+          [ -f release-dist/dtbo_new.img ] && cp release-dist/dtbo_new.img release-bundle/dtbo.img || true
+          [ -f modules/out/arch/arm64/boot/Image.gz ] && cp modules/out/arch/arm64/boot/Image.gz release-bundle/Image.gz || true
+
+          ls -lh release-bundle/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "xaga 6.12 Kernel ${{ github.ref_name }}"
+          generate_release_notes: true
+          files: release-bundle/*

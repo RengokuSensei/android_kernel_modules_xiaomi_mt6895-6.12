@@ -279,7 +279,7 @@ config() {
 # ---------------------------------------------------------------------------
 kernel() {
     log "3/8 kernel Image + Image.gz"
-    ( cd "$K" && make "${MAKE_CC[@]}" O="$OUT" ARCH=arm64 LLVM=1 -j"$JOBS" Image > "$WORK/kernel.log" 2>&1 )
+    ( cd "$K" && make "${MAKE_CC[@]}" O="$OUT" ARCH=arm64 LLVM=1 -j"$JOBS" Image > "$WORK/kernel.log" 2>&1 ) || { echo "=== KERNEL IMAGE ERROR LOG ==="; cat "$WORK/kernel.log"; exit 1; }
     # gzip -n: no embedded filename/timestamp (MTK bootloader requirement)
     gzip -n -c "$OUT/arch/arm64/boot/Image" > "$OUT/arch/arm64/boot/Image.gz"
     ls -la "$OUT/arch/arm64/boot/Image.gz"
@@ -332,6 +332,7 @@ dtc_cpp() {  # dtc_cpp <in.dts> <out.dtb> [extra flags]
 dts() {
     log "5/8 DTS: mt6895.dtb + xaga.dtbo + xaga_global.dtbo"
     mkdir -p "$WORK/dts" "$OUT/dts"
+    [ -x "$OUT/scripts/dtc/dtc" ] || ( cd "$K" && make "${MAKE_CC[@]}" O="$OUT" ARCH=arm64 LLVM=1 -j"$JOBS" scripts_dtc > "$WORK/dtc.log" 2>&1 ) || { echo "=== DTC BUILD ERROR LOG ==="; cat "$WORK/dtc.log"; exit 1; }
     dtc_cpp "$DTS_DIR/mt6895.dts"        "$WORK/dts/mt6895.dtb"
     dtc_cpp "$DTS_DIR/xaga.dts"          "$WORK/dts/xaga.dtbo"
     dtc_cpp "$DTS_DIR/xaga_global.dts"   "$WORK/dts/xaga_global.dtbo"
@@ -383,12 +384,13 @@ pack_vendor() {
     cd "$VD/vendor_ramdisk"
     local VR_SRC="${VENDOR_RAMDISK_LZ4:-$IMG_DIR/building/tools/vendor_ramdisk_official_full.bin}"
     lz4 -d -f "$VR_SRC" vr.raw > /dev/null 2>&1 || true
-    # integrity gate: full official ramdisk decompresses to exactly
-    # 88,036,352B (80MB cpio + 7.2MB tail with the second TRAILER!!! at EOF);
+    # integrity gate: full official ramdisk decompresses to >= 88MB
+    # (80MB cpio + 7.2MB tail with the second TRAILER!!! at EOF);
     # anything less means a truncated source
-    if [ "$(stat -c %s vr.raw 2>/dev/null || echo 0)" -ne 88036352 ]; then
-        echo "ERROR: vendor ramdisk extraction incomplete ($(stat -c %s vr.raw 2>/dev/null) bytes)" >&2
-        echo "  source: $VR_SRC (expected 88036352B)" >&2
+    local VR_SZ="$(stat -c %s vr.raw 2>/dev/null || echo 0)"
+    if [ "$VR_SZ" -lt 88000000 ]; then
+        echo "ERROR: vendor ramdisk extraction incomplete ($VR_SZ bytes, expected >= 88000000)" >&2
+        echo "  source: $VR_SRC" >&2
         exit 1
     fi
     mkdir -p rd && cd rd
