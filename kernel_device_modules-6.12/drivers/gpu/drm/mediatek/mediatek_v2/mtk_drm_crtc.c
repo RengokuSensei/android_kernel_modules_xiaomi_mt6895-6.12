@@ -17392,6 +17392,19 @@ void mtk_drm_crtc_first_enable(struct drm_crtc *crtc)
 	/* for ap res switch */
 	mtk_crtc_divide_default_path_by_rsz(mtk_crtc);
 
+	if (disp_helper_get_stage() == DISP_HELPER_STAGE_NORMAL) {
+		/* power on mtcmos & init apsrc before DSI/DDP register programming */
+		mtk_drm_top_clk_prepare_enable(crtc);
+
+		mtk_crtc_v_idle_apsrc_control(crtc, NULL, true, false,
+			MTK_APSRC_CRTC_DEFAULT, false);
+
+		/* prepare modules used in this CRTC */
+		mtk_crtc_ddp_prepare(mtk_crtc);
+
+		mtk_crtc_disable_unused_clk(crtc);
+	}
+
 	output_comp = mtk_ddp_comp_request_output(mtk_crtc);
 	if (output_comp)
 		mtk_ddp_comp_io_cmd(output_comp, NULL, SET_MMCLK_BY_DATARATE, &en);
@@ -17399,11 +17412,10 @@ void mtk_drm_crtc_first_enable(struct drm_crtc *crtc)
 	/*
 	 * xaga: modules probe after clk_disable_unused, so the LK-started DSI
 	 * stream may already be gated by the time we get here. If probe did
-	 * not take the LK handoff (dsi->output_en false), initialize DSI now,
-	 * before mtk_crtc_first_enable_ddp_config() starts waiting for DSI0
-	 * FRAME_DONE (event 313). The self pattern enabled in
-	 * mtk_preconfig_dsi_enable keeps DSI fed until the first real frame
-	 * arrives.
+	 * not take the LK handoff (dsi->output_en false), initialize DSI now
+	 * with MTCMOS top power and clocks active, before
+	 * mtk_crtc_first_enable_ddp_config() starts waiting for DSI0
+	 * FRAME_DONE (event 313).
 	 */
 	if (output_comp && mtk_ddp_comp_get_type(output_comp->id) == MTK_DSI) {
 		struct mtk_dsi *dsi = container_of(output_comp,
@@ -17440,22 +17452,11 @@ void mtk_drm_crtc_first_enable(struct drm_crtc *crtc)
 		MTK_DRM_OPT_MMQOS_SUPPORT))
 		mtk_drm_pan_disp_set_hrt_bw(crtc, __func__);
 
-	/* 3. Regsister configuration */
+	/* 3. Register configuration */
 	mtk_crtc_first_enable_ddp_config(mtk_crtc);
 
 	if (disp_helper_get_stage() == DISP_HELPER_STAGE_NORMAL) {
-		/* 4. power on mtcmos & init apsrc*/
-		mtk_drm_top_clk_prepare_enable(crtc);
-
-		mtk_crtc_v_idle_apsrc_control(crtc, NULL, true, false,
-			MTK_APSRC_CRTC_DEFAULT, false);
-
-		/* 5. prepare modules would be used in this CRTC */
-		mtk_crtc_ddp_prepare(mtk_crtc);
-
-		mtk_crtc_disable_unused_clk(crtc);
-
-		/* 6. sodi config */
+		/* sodi config */
 		if (priv->data->sodi_config) {
 			struct mtk_ddp_comp *comp;
 			int i, j;

@@ -17076,8 +17076,20 @@ static int mtk_dsi_probe(struct platform_device *pdev)
 					dsi->ext->is_connected =
 						panel_connection_from_atag() & BIT(alias);
 			} else {
-				DDPPR_ERR("%s xaga: LK DSI off, defer full DSI init\n",
+				DDPPR_ERR("%s xaga: LK DSI off, prepare DSI clocks to prevent clk_disable_unused gating\n",
 					__func__);
+				phy_power_on(dsi->phy);
+				if (!pwr_node) {
+					ret = clk_prepare_enable(dsi->engine_clk);
+					if (ret < 0)
+						DDPPR_ERR("%s Failed to enable engine clock: %d\n",
+							__func__, ret);
+
+					ret = clk_prepare_enable(dsi->digital_clk);
+					if (ret < 0)
+						DDPPR_ERR("%s Failed to enable digital clock: %d\n",
+							__func__, ret);
+				}
 			}
 		}
 #endif
