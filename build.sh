@@ -162,8 +162,10 @@ preflight() {
     for t in bc bison flex lz4 cpio python3 gzip; do
         command -v "$t" >/dev/null 2>&1 || missing+=("$t")
     done
-    [ -x "$LLVM_PREFIX/bin/clang" ] || missing+=("clang ($LLVM_PREFIX/bin/clang)")
-    [ -x "$LLVM_PREFIX/bin/ld.lld" ] || missing+=("ld.lld ($LLVM_PREFIX/bin/ld.lld)")
+    local LLVM_DIR="${LLVM_PREFIX%/bin}"
+    LLVM_DIR="${LLVM_DIR%/}"
+    [ -x "$LLVM_DIR/bin/clang" ] || missing+=("clang ($LLVM_DIR/bin/clang)")
+    [ -x "$LLVM_DIR/bin/ld.lld" ] || missing+=("ld.lld ($LLVM_DIR/bin/ld.lld)")
     command -v aarch64-linux-gnu-ld >/dev/null 2>&1 || missing+=("aarch64-linux-gnu-ld")
     if [ ${#missing[@]} -gt 0 ]; then
         echo "ERROR: missing build tools: ${missing[*]}" >&2
@@ -181,7 +183,8 @@ preflight() {
             [ -e "$p" ] || { echo "missing required path: $p" >&2; exit 1; }
         done
     fi
-    export PATH="$LLVM_PREFIX/bin:$PATH"
+    export PATH="$LLVM_DIR/bin:$PATH"
+    export LLVM_PREFIX="$LLVM_DIR/bin/"
     export KCONFIG_EXT_PREFIX="$M/"   # REQUIRED for every make (module symbols)
     export PYTHONPATH="$WORK"
     # gki stub: mkbootimg.py imports it at module load; signing only runs with
@@ -407,7 +410,7 @@ pack_vendor() {
     # xaga: official 5.10 modules carry no DWARF (40MB vs our 130MB for the
     # same 198 modules). Drop debug sections, keep .symtab + __ksymtab so
     # modinfo/depmod/insmod all still work (2026-08-10).
-    find lib/modules -name '*.ko' -exec "$LLVM_PREFIX/bin/llvm-strip" --strip-debug {} +
+    find lib/modules -name '*.ko' -exec "${LLVM_PREFIX}llvm-strip" --strip-debug {} +
     cd lib/modules
     ls *.ko | sed 's|\.ko$||' | sort > modules.load
     cp modules.load modules.load.recovery
