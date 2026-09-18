@@ -32,6 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: RengokuSensei/android_kernel_oddo_mt6895
+          ref: xaga-6.12
           path: kernel
 
       - name: Install Host Build Dependencies

@@ -215,11 +215,11 @@ clean() {
 # ---------------------------------------------------------------------------
 config() {
     log "2/8 kernel config (gki_defconfig + mgk_64_k612 + xaga.config)"
-    ( cd "$K" && make "${MAKE_CC[@]}" O="$OUT" ARCH=arm64 LLVM=1 gki_defconfig > "$WORK/config1.log" 2>&1 )
+    ( cd "$K" && make "${MAKE_CC[@]}" O="$OUT" ARCH=arm64 LLVM=1 gki_defconfig > "$WORK/config1.log" 2>&1 ) || { cat "$WORK/config1.log"; exit 1; }
     ( cd "$K" && KCONFIG_CONFIG="$OUT/.config" ./scripts/kconfig/merge_config.sh -m \
         "$OUT/.config" \
         "$M/arch/arm64/configs/mgk_64_k612_defconfig" \
-        "$M/arch/arm64/configs/vendor/xaga.config" > "$WORK/merge.log" 2>&1 )
+        "$M/arch/arm64/configs/vendor/xaga.config" > "$WORK/merge.log" 2>&1 ) || { cat "$WORK/merge.log"; exit 1; }
     # xaga has no hardware virtualization: the MT6895 boot chain (LK/ATF, 5.10
     # era) provides no pKVM-capable EL2/hyp, so protected-KVM init hangs early
     # (unknown-SMC / hyp install). Drop kvm-arm.mode=protected from the baked
