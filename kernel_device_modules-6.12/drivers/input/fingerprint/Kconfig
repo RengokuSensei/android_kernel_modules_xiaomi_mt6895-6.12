@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+menu "Fingerprint support"
+
+source "$(KCONFIG_EXT_PREFIX)drivers/input/fingerprint/goodix_cap/Kconfig"
+
+endmenu
