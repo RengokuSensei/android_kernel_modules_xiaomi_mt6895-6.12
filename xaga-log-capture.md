@@ -1,101 +1,65 @@
-# xaga 内核日志捕获方法（LK log_store 恢复 + XAGR 环 + oops 分区 kmsg_dumper）
+# xaga Kernel Log Capture Methods (LK log_store Restoration + XAGR Ring Buffer + oops Partition kmsg_dumper)
 
-> 真机验证状态：2026-08-10 实测通过——6.12 内核把 printk 镜像进 log_store 保留区的
-> XAGR 环，LK 在下次启动时把 log_store 区内容恢复记录到 expdb，内核日志随 expdb
-> 重新出现（含 MIRROR:n 心跳证明镜像存活）。
-> **2026-08-13 新增第二通道**：oops 分区（`/dev/block/sdc81`）kmsg_dumper
-> （`xaga-dumpregs`，K 树内置 `CONFIG_XAGA_DUMPREGS=y`）——崩溃时把完整 dmesg
-> （XGAD 头 + 512KiB）写入 oops 分区，`dd if=/dev/block/sdc81 bs=4096 skip=1` 读取，
-> 不依赖 LK 恢复机制（见下文 "oops 分区 kmsg_dumper"）。
+> Hardware Verification Status: Tested and verified on 2026-08-10—6.12 kernel mirrors printk into the log_store reserved area's XAGR ring buffer. LK restores and records the log_store area content to expdb upon next boot, and kernel logs reappear along with expdb (including MIRROR:n heartbeat proving mirror survival).
+> **2026-08-13 Added Second Channel**: oops partition (`/dev/block/sdc81`) kmsg_dumper (`xaga-dumpregs`, K-tree built-in `CONFIG_XAGA_DUMPREGS=y`)—writes complete dmesg (XGAD header + 512KiB) to oops partition during crash, read via `dd if=/dev/block/sdc81 bs=4096 skip=1`, independent of LK restoration mechanism (see "oops partition kmsg_dumper" below).
 
-## 一句话原理
+## Principle in One Sentence
 
-**LK 的 PL_LOG_STORE 机制会在启动时把 DRAM log_store 保留区（0x7ffbf000, 256KB）的
-内容恢复记录到 expdb 分区**——因此把内核日志写进 log_store 区，就能让 LK 替我们
-记录内核日志，重启后从 expdb 读回。**不需要自建读端，也不受 console 配置影响。**
+**LK's PL_LOG_STORE mechanism restores and records the content of DRAM log_store reserved area (0x7ffbf000, 256KB) to the expdb partition during boot**—therefore, writing kernel logs to the log_store area allows LK to log kernel messages for us, which can be read back from expdb after reboot. **No custom reader end is needed, nor is it affected by console configuration.**
 
-## 机制细节（2026-08-10 实证）
+## Mechanism Details (Verified 2026-08-10)
 
-- log_store 区 = LK mblock-R 保留区：`0x7ffbf000 size 0x40000 map:1 name:log_store`。
-- LK 启动第一行日志 `PL_LOG_STORE: set ram_header->sig = 0xABCD1234` = LK 初始化该区。
-- 真机证据：expdb 内核日志区间里出现 `stage=1`（无 printk 前缀）——那是 XAGR 环
-  文本被 LK 恢复出来的，紧跟在 `xaga-marker-writer: XAGR ring armed`（printk）之后。
-- expdb 的内核日志区间 = 内核 log buffer 抓取（printk，从 setup_arch 头的
-  "XAGR ring armed" 开始）+ log_store 区恢复内容（环文本）拼接。
+- log_store area = LK mblock-R reserved area: `0x7ffbf000 size 0x40000 map:1 name:log_store`.
+- LK boot first line log `PL_LOG_STORE: set ram_header->sig = 0xABCD1234` = LK initializes this area.
+- Hardware evidence: `stage=1` appears in expdb kernel log section (no printk prefix)—that is the XAGR ring buffer text restored by LK, immediately following `xaga-marker-writer: XAGR ring armed` (printk).
+- Kernel log section of expdb = kernel log buffer capture (printk, starting from "XAGR ring armed" at setup_arch head) + log_store area restored content (ring buffer text) spliced together.
 
-## 用法
+## Usage
 
-1. 刷入内置了 XAGR 环写端的内核（`CONFIG_XAGA_MARKER_WRITER=y`）。
-2. 启动到任意阶段（含挂死/panic/WDT 重启）。
-3. 重启后 dump expdb 分区（LK 侧方式），内核日志尾部就是最后一段 printk +
-   环内容（`MIRROR:n` 心跳、`stage=n` 标记）。
+1. Flash kernel with built-in XAGR ring buffer writer (`CONFIG_XAGA_MARKER_WRITER=y`).
+2. Boot to any stage (including hang / panic / WDT reboot).
+3. Dump expdb partition after reboot (via LK side method), the tail of kernel log contains the last section of printk + ring buffer content (`MIRROR:n` heartbeat, `stage=n` marker).
 
-## 写端实现（K 树 `drivers/misc/xaga-marker-writer.c`，内置）
+## Writer Implementation (K-tree `drivers/misc/xaga-marker-writer.c`, Built-in)
 
-- `xaga_marker_early_init()`：`setup_arch` 头部（`early_fixmap_init()` +
-  `early_ioremap_init()` 之后第一件事）`early_ioremap(0x7ffbf000, 0x10000)`，
-  重置 magic/cursor/total/stage，写 `stage=1`。这是 arm64 MMU 允许的**最早**映射点
-  （paging_init 前线性映射未建立，0x7ffbf000 无映射，无法更早）。
-- `xaga_marker_early_printk()`：`vprintk_emit()`（kernel/printk/printk.c）顶部钩子，
-  每个 printk 经 `va_copy + vscnprintf` 镜像进环（滚动 56KB，无锁无分配，任意
-  printk 上下文安全，panic 后消息也入环）。每 64 条写 `MIRROR:n` 心跳。
-- 环布局（与 lineage 读端一致）：`u32 magic 0x52474158 @0x0000 / cursor @0x0004 /
-  total @0x0008 / stage @0x1000 / 文本环 @0x2000（0xE000 字节）`。
-- 每次 ring_write 重断言 magic（防 aee/mrdump 覆写 header）。
-- module notifier 保留：vendor 模块 probe 挂死时最后一条 = 模块名。
+- `xaga_marker_early_init()`: At `setup_arch` head (first thing after `early_fixmap_init()` + `early_ioremap_init()`) calls `early_ioremap(0x7ffbf000, 0x10000)`, resets magic/cursor/total/stage, and writes `stage=1`. This is the **earliest** mapping point allowed by arm64 MMU (before paging_init linear mapping is not established, 0x7ffbf000 has no mapping, cannot be earlier).
+- `xaga_marker_early_printk()`: Top hook in `vprintk_emit()` (kernel/printk/printk.c), mirrors every printk into the ring buffer via `va_copy + vscnprintf` (56KB rolling, lockless & allocation-free, safe in any printk context, messages after panic also enter ring). Writes `MIRROR:n` heartbeat every 64 messages.
+- Ring layout (matches lineage reader): `u32 magic 0x52474158 @0x0000 / cursor @0x0004 / total @0x0008 / stage @0x1000 / text ring @0x2000 (0xE000 bytes)`.
+- Re-asserts magic on every ring_write (protects header against aee/mrdump overwrite).
+- Module notifier retained: Last line when vendor module probe hangs = module name.
 
-## 已排除的候选区（都不能用）
+## Excluded Candidate Areas (None Usable)
 
-| 区 | 地址 | 原因 |
+| Area | Address | Reason |
 |---|---|---|
-| minirdump | 0x48170000 | 写入触发 MTK mrdump 机制**立即重启**（2026-08-09 实测） |
-| pstore | 0x48090000 | 内核 ramoops 占用（`ramoops: using 0xe0000@0x48090000`） |
-| aee_lk | 0x50700000 | **LK 不恢复该区**（环放这里 expdb 无内容，2026-08-10 实测） |
-| gz-log / atf-log | 0x7f200000 / 0xbfe00000 | TEE/ATF 保留区，NS 访问 SError panic |
-| log_store 本身 | 0x7ffbf000 | **唯一可用**（LK 自动恢复记录） |
+| minirdump | 0x48170000 | Writing triggers MTK mrdump mechanism to **reboot immediately** (tested 2026-08-09) |
+| pstore | 0x48090000 | Occupied by kernel ramoops (`ramoops: using 0xe0000@0x48090000`) |
+| aee_lk | 0x50700000 | **LK does not restore this area** (ring placed here yields empty expdb content, tested 2026-08-10) |
+| gz-log / atf-log | 0x7f200000 / 0xbfe00000 | TEE/ATF reserved areas, NS access causes SError panic |
+| log_store itself | 0x7ffbf000 | **Only usable option** (automatically restored and recorded by LK) |
 
-## 坑
+## Gotchas
 
-- **"setup_arch 前"在 arm64 物理上不可行**：paging_init 前 0x7ffbf000 无映射；
-  `early_ioremap`（fixmap，earlycon 同款机制）是硬件允许的最早途径，映射持久。
-- **`CONFIG_EARLY_PRINTK` 在 arm64 是死代码**：printk.h 里是空函数、无 arm64
-  Kconfig、无人注册 `early_console`。真实早期打印流 = `vprintk_emit` 钩子。
-- **`early ioremap leak of 1 areas` 警告是正常的**（故意保留映射供全程写环）。
-- **merge_config -m 只加不改**：关闭 gki 基的符号（KVM/特性/KASAN）必须在
-  build.sh config() 里 sed 覆盖并加 if-grep 断言（`grep && {...}` 在 set -e 下
-  grep 不匹配会杀脚本，须用 if 形式）。
-- **expdb 抓取的内核日志从 setup_arch 头开始**（"XAGR ring armed"），更早的
-  banner/start_kernel 早期 printk 不在（log buffer 抓取起点）。
-- 6.12 移植链路上的其他启动修复（与本方法配套，缺一不可）：
-  PKVM 移除（xaga 无硬件虚拟化）、SMCCC TRNG/SOC_ID 探测守卫、aee_aed 模块
-  （否则 init first-stage 加载 aee_rs 缺 `aee_get_mode` 符号 abort）。
+- **"Before setup_arch" is physically impossible on arm64**: 0x7ffbf000 has no mapping before paging_init; `early_ioremap` (fixmap, same mechanism as earlycon) is the earliest hardware-permitted path, mapping is persistent.
+- **`CONFIG_EARLY_PRINTK` is dead code on arm64**: Dummy functions in printk.h, no arm64 Kconfig, nobody registers `early_console`. Actual early printk flow = `vprintk_emit` hook.
+- **`early ioremap leak of 1 areas` warning is normal** (intentionally retained mapping for writing to ring throughout execution).
+- **merge_config -m only adds, never modifies**: Disabling GKI base symbols (KVM / features / KASAN) must be overridden via sed in `build.sh config()` with if-grep assertions (`grep && {...}` will kill script under set -e if grep doesn't match, must use if form).
+- **Kernel log captured by expdb starts from setup_arch head** ("XAGR ring armed"), earlier banner/start_kernel early printks are not present (log buffer capture start point).
+- Other boot fixes on 6.12 porting chain (accompanying this method, indispensable): PKVM removal (xaga lacks hardware virtualization), SMCCC TRNG/SOC_ID probe guards, aee_aed module (otherwise init first-stage loading aee_rs aborts due to missing `aee_get_mode` symbol).
 
-## 相关文件
+## Related Files
 
-- 写端：K 树 `drivers/misc/xaga-marker-writer.c` + `include/linux/xaga_marker.h`
-- 钩子：K 树 `kernel/printk/printk.c`（vprintk_emit 顶部）+ `arch/arm64/kernel/setup.c`
-  （setup_arch 头调 `xaga_marker_early_init()`）
-- **读取方式 = 直接看 expdb 转储**（LK PL_LOG_STORE 把 log_store 区内容恢复记录进 expdb，重启后 dump expdb 分区即得环文本，无需任何读端代码）
-- 读端代码（仅备用/参考）：lineage_xaga `drivers/misc/xaga-marker.c`
-- 构建接线：移植树 `build.sh`（config sed + 模块断言）+ `arch/arm64/configs/vendor/xaga.config`
-- **补丁集（2026-08-11 导出）**：`xaga/patches-lk-log/`（5 个 git format-patch，
-  含 README）——K 树写端链路 + smccc 配套，可从 OPPO 基线 `c5d442d1d` 顺序 `git am`
-  应用；`git am` 验证与 K 树 HEAD `84a4857b1` 逐字节一致
+- Writer: K-tree `drivers/misc/xaga-marker-writer.c` + `include/linux/xaga_marker.h`
+- Hooks: K-tree `kernel/printk/printk.c` (top of vprintk_emit) + `arch/arm64/kernel/setup.c` (setup_arch head calls `xaga_marker_early_init()`)
+- **Reading Method = Direct inspection of expdb dump** (LK PL_LOG_STORE restores log_store area content into expdb, rebooting and dumping expdb partition yields ring text, no reader code needed)
+- Reader Code (for reference/backup only): lineage_xaga `drivers/misc/xaga-marker.c`
+- Build Wiring: Porting tree `build.sh` (config sed + module assertion) + `arch/arm64/configs/vendor/xaga.config`
+- **Patch Set (Exported 2026-08-11)**: `xaga/patches-lk-log/` (5 git format-patch files, including README)—K-tree writer chain + smccc pairing, can be applied sequentially via `git am` from OPPO baseline `c5d442d1d`; `git am` verified byte-for-byte identical with K-tree HEAD `84a4857b1`
 
-## oops 分区 kmsg_dumper（2026-08-13 定型，第二通道）
+## oops Partition kmsg_dumper (Finalized 2026-08-13, Second Channel)
 
-- 写端：K 树 `drivers/misc/xaga-dumpregs.c`（内置，`CONFIG_XAGA_DUMPREGS=y`，
-  由 xaga.config 设置）。注册 `kmsg_dumper`（`max_reason=KMSG_DUMP_OOPS`，
-  oops + panic 均触发），die notifier 里主动 `kmsg_dump_desc()`（早于 mrdump
-  淹没日志），把**完整 dmesg（上限 512KiB）**经 panic-safe 轮询 bio 写入
-  `/dev/block/sdc81`（oops 分区，16MB）。
-- 布局：sdc81 头部 4096B = 64B `XGAD` 头（magic/version/reason/len/ts）+ 空；
-  日志文本从 byte 4096 起（整页 4096B 对齐——UFS 拒绝非 4KB 对齐 bio，
-  oops 上下文写入链已修复：kzalloc 缓冲 / virt_addr_valid / 每页一 bio /
-  IRQ 窗口）。
-- 读取：`dd if=/dev/block/sdc81 bs=1 count=64 | xxd`（XGAD 头）、
-  `dd if=/dev/block/sdc81 bs=4096 skip=1 | head -c 20000`（dmesg 文本）。
-- 分区打开：delayed_work 200ms 轮询 `/dev/block/by-name/oops` →
-  `/dev/block/sdc81`（devtmpfs 自动建节点，不依赖 init）。
-- 与 XAGR 环互补：XAGR 环（log_store→expdb）覆盖早期/挂死；oops 分区
-  覆盖崩溃时完整 dmesg（含 oops 栈、模块加载序列、崩溃前最后日志）。
+- Writer: K-tree `drivers/misc/xaga-dumpregs.c` (built-in, `CONFIG_XAGA_DUMPREGS=y`, set by xaga.config). Registers `kmsg_dumper` (`max_reason=KMSG_DUMP_OOPS`, triggered by both oops + panic), actively calls `kmsg_dump_desc()` inside die notifier (earlier than mrdump drowning logs), writing **complete dmesg (up to 512KiB)** to `/dev/block/sdc81` (oops partition, 16MB) via panic-safe polled bio.
+- Layout: sdc81 header 4096B = 64B `XGAD` header (magic/version/reason/len/ts) + empty; log text starts from byte 4096 (full page 4096B aligned—UFS rejects non-4KB aligned bio, oops context write chain fixed: kzalloc buffer / virt_addr_valid / one bio per page / IRQ window).
+- Reading: `dd if=/dev/block/sdc81 bs=1 count=64 | xxd` (XGAD header), `dd if=/dev/block/sdc81 bs=4096 skip=1 | head -c 20000` (dmesg text).
+- Partition Opening: delayed_work 200ms polls `/dev/block/by-name/oops` -> `/dev/block/sdc81` (devtmpfs automatically creates node, does not depend on init).
+- Complementary with XAGR ring: XAGR ring (log_store->expdb) covers early boot / hangs; oops partition covers full dmesg during crash (including oops stack, module loading sequence, last log before crash).
