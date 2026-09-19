@@ -38,7 +38,7 @@ xaga/kernel_xiaomi_mt6895-6.12/
 | 板级 DTS 链 | ✅ 已完成（静态验证） | 210 label 引用全解析、cpp-preprocess 干净；**⚠️ DTS Makefile 0 处 xaga 注册**，DTBO 列表须在用户环境 mgk 规则补（§6.4） |
 | defconfig（xaga.config） | ✅ 已完成 | 关键符号见 §3 |
 | 完整构建 + 打包 | ✅ 本机可构建 | 产物见 §4；用户环境需重跑完整集成 |
-| 指纹 goodix_cap | ❌ 未做 | 依赖 5.10 私有 mtk_spi.h，GF3626ZS9 TEE（§6.1） |
+| 指纹 goodix_cap | ✅ 已完成 | 已移植至标准 Linux 6.12 SPI 子系统 API（§6.1） |
 | 真机验证 | ✅ **recovery 可进、显示正常（2026-08-13）** | 显示链路根因（PWM0/SPR0 compatible → crtc0 未创建）闭环后 recovery 正常进入；**进系统需 blob 支持（§6.7）** |
 
 ## 3. 配置（xaga.config 关键符号）
@@ -111,7 +111,7 @@ xaga/kernel_xiaomi_mt6895-6.12/
 
 | # | 缺口 | 状态 | 处理 |
 |---|---|---|---|
-| 1 | 指纹 goodix_cap 未移植 | 阻塞指纹功能 | 依赖 5.10 内核私有 `mtk_spi.h`/`mtk_spi_hal.h`（用户环境），GF3626ZS9 TEE；移植步骤见 README.md 已知缺口 §1 |
+| 1 | 指纹 TEE 守护进程 | 非阻塞 | `goodix_cap` 内核驱动已移植至 Linux 6.12 SPI API；真机需配套 TEE 用户态应用/守护进程测试 |
 | 2 | vendor/mediatek 完整集不在本树 | 需用户环境 | mtkcam 等由用户 MTK manifest 提供 |
 | 3 | sensor 合入 | 需用户环境 | 在 `src-v4l2/BUILD.bazel` 的 `config_cust_kernel_imgsensor` 追加 6 个 xaga* 名字（make 路径自动读 CONFIG_CUSTOM_KERNEL_IMGSENSOR，无需改） |
 | 4 | DTS Makefile 0 处 xaga 注册 | 需用户环境 | DTBO 列表在 `kernel/build` mgk 规则注册（本树无法完成）；mgk_64.bzl:1361 给 mt6895 注册了 lm3644（xaga 用 KTD2687，保留无害可删） |
@@ -130,7 +130,7 @@ xaga/kernel_xiaomi_mt6895-6.12/
    - 正常重启（清除 recovery 标志）→ 确认 boot mode 0
    - init 第二阶段 / system 挂载 / zygote 启动
    - 充电流程（顺序见 BRINGUP.md §3.4）：`/sys/class/power_supply/` → 5V 普通充电 → PD 快充
-3. **剩余工作（非阻塞）**：指纹（可选）、lm3644 清理（可选）、触控 fw 放置。
+3. **剩余工作（非阻塞）**：lm3644 清理（可选）、触控 fw 放置。
 
 ## 8. 决策记录要点
 

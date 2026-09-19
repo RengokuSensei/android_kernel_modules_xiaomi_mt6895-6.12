@@ -238,7 +238,7 @@ drivers/power/supply/mtk_pd_adapter.c    (pd_authentication 成功路径, ~:568)
 - [ ] 触控 fw(nt36672e fw 文件)放入 vendor 分区对应路径
 - [ ] xaga_global 变体开机验证(若 CN 版 TEE/svp 有问题时用)
 - [ ] mtk-master-charger 名字的 kABI/模块加载顺序核对(若有 modprobe 依赖)
-- [ ] **指纹驱动(goodix_cap)**: DTS 有 `goodix,goodix-fp` 节点(cust_mt6895_fingerprint.dtsi), 5.10 用 drivers/input/fingerprint/goodix_cap/(GF3626ZS9 TEE), 6.12 未移植 —— 依赖 5.10 内核私有 mtk_spi.h(用户环境), 移植步骤见 README.md 已知缺口 §1
+- [x] **指纹驱动(goodix_cap)**: 已移植至标准 Linux 6.12 SPI 子系统 API(gf3626zs9.c)
 - [ ] **sensor 用户环境合入**: 在用户环境 `src-v4l2/BUILD.bazel` 的 `config_cust_kernel_imgsensor` 追加 6 个 xaga* 名字(步骤见 §6)
 - [ ] **lm3644 注册残留清理**(可选): `mgk_64.bzl:1361` 给 mt6895 注册了 lm3644, xaga 用 KTD2687 不用, 保留无害可删
 
