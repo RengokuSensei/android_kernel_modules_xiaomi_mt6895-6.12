@@ -111,18 +111,19 @@ All drivers are registered in Kleaf's `kernel/kleaf/mgk_64.bzl` and `BUILD.bazel
 | **Display DRM Handoff** | Early boot display pipeline fix — MTCMOS power-on ordering + DSI clock preparation |
 | **Vendor Firmware Staging** | `vendor_firmware/` directory structure + `build.sh` auto-staging for `gz`/`tee`/`sspm`/`mcupm`/`pi_img` |
 | **Recovery Boot** | Verified on real hardware: boots into recovery with working display (2026-08-13) |
-| **Documentation** | README translated to English; STATUS/BRINGUP/xaga-drm-restore/xaga-log-capture translation in progress |
+| **Android 16 VABC Ramdisk** | Upgraded base boot asset from Android 12 GSI to native Android 16 with `snapuserd` (Issue #7) |
+| **Documentation** | Fully translated to English (`STATUS.md`, `BRINGUP.md`, `xaga-drm-restore.md`, `xaga-log-capture.md`) |
 
 ### 🔧 Remaining Gaps
 
 | # | Gap | Severity | Notes |
 |---|-----|----------|-------|
 | 1 | **Fingerprint TEE daemon** | Non-blocking | `goodix_cap` kernel driver is ported; needs matching TEE user-space daemon + real hardware testing |
-| 2 | **Camera Sensor Bazel Registration** | Needs user env | 6 sensor drivers present in `src-v4l2/common/xaga*/`; append names to `src-v4l2/BUILD.bazel` in full MTK manifest builds |
+| 2 | **Camera Sensor Bazel Registration** | In progress (Issue #6) | 6 sensor drivers present in `src-v4l2/common/xaga*/`; register in parent Kbuild and BUILD.bazel |
 | 3 | **Touchscreen Firmware** | Needs device | `nt36672c` firmware binary must be placed in `/vendor/firmware` partition |
 | 4 | **DTS Makefile Registration** | Needs user env | DTBO list must be registered in `kernel/build` mgk rules (not possible in this tree alone) |
-| 5 | **Full Android Boot (Vendor Blobs)** | Current boundary | Recovery boots cleanly. Full Android userspace requires proprietary blobs: TEE/gz/mcupm/sspm firmware, vendor HAL binaries (camera, fingerprint TEE app, audio DSP), and system/vendor partition images |
-| 6 | **DSI Black Screen (LK not initializing)** | Under investigation | When LK skips DSI init, kernel must replicate full LK display pipeline — see STATUS.md §10 (rounds 16-23). Currently rolled back to 16:33 checkpoint |
+| 5 | **Full Android Boot (System Mount)** | Staged for hardware test | Recovery boots cleanly. Native Android 16 ramdisk with `snapuserd` assembled; ready for hardware testing on Android 16 userspace |
+| 6 | **DSI Black Screen (LK not initializing)** | Under investigation | When LK skips DSI init, kernel must replicate full LK display pipeline — resolved on Fenrir LK |
 
 ### 🗺️ Next Steps
 

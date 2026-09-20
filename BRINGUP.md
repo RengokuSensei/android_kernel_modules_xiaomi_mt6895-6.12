@@ -1,195 +1,186 @@
-# xaga 6.12 Bring-up Guide (以开机为目标)
+# xaga 6.12 Bring-up Guide (Goal: Booting)
 
 > Redmi Note 11T Pro / POCO X4 GT / Redmi K50i (xaga, MT6895 / Dimensity 8100)
-> 6.12 MTK kernel_device_modules 移植树。目标:编译出可开机的内核 + DTBO + 模块,
-> 在真机上完成从"亮屏进系统"到"充电功能"的 bring-up。
-> 状态基准:commit `30c80ea`（2026-08-13，已推送 origin/main）。历史经 rebase，旧 hash 见 STATUS.md §9。
-> **真机进度（2026-08-13）**: 显示链路根因（PWM0/SPR0 compatible）闭环后，**编译产物可进入 recovery 且显示正常**（开机过程 LK→内核早期会花屏，进 recovery 后正常，仅描述未修复）。**进系统（正常 Android boot）需要 blob 支持**（TEE/gz/mcupm/sspm 固件、vendor 分区专有二进制等，见 STATUS.md §6.8）。
+> 6.12 MTK kernel_device_modules porting tree. Goal: Compile a bootable kernel + DTBO + modules,
+> and complete bring-up from "screen on into system" to "charging functionality" on physical hardware.
+> Status baseline: commit `30c80ea` (2026-08-13, pushed to origin/main). History was rebased, see STATUS.md §9 for old hashes.
+> **Hardware Progress (2026-08-13)**: After closing the display pipeline root cause (PWM0/SPR0 compatible), **compiled artifacts can enter recovery with normal display** (boot process LK->early kernel shows corruption, normal after entering recovery; described only, not fixed). **Booting into system (normal Android boot) requires blob support** (TEE/gz/mcupm/sspm firmware, vendor partition proprietary binaries, etc., see STATUS.md §6.8).
 
 ---
 
-## 0. 树结构速览
+## 0. Tree Structure Overview
 
 ```
-xaga/kernel_xiaomi_mt6895-6.12/            # 本移植树(git 仓库, 24 commits)
-└── kernel_device_modules-6.12/            # MTK 6.12 OOT 模块源(基于 OPPO android_kernel_oddo_mt6895, OPPO 专属已剥离)
-    ├── arch/arm64/boot/dts/mediatek/      # xaga.dts / xaga_global.dts 板级 overlay
-    ├── arch/arm64/configs/vendor/xaga.config   # xaga defconfig 片段
-    ├── drivers/...                        # 移植的小米驱动(触摸/充电/面板/背光/触觉)
-    └── kernel/kleaf/mgk_64.bzl            # mgk 模块注册表
+xaga/kernel_xiaomi_mt6895-6.12/            # This porting tree (git repo, 24 commits)
+└── kernel_device_modules-6.12/            # MTK 6.12 OOT module source (based on OPPO android_kernel_oddo_mt6895, OPPO-exclusive stripped)
+    ├── arch/arm64/boot/dts/mediatek/      # xaga.dts / xaga_global.dts board overlay
+    ├── arch/arm64/configs/vendor/xaga.config   # xaga defconfig fragment
+    ├── drivers/...                        # Ported Xiaomi drivers (touch/charging/panel/backlight/haptics)
+    └── kernel/kleaf/mgk_64.bzl            # mgk module registry
 ```
 
-**本树不含**:GKI common 内核(需 OPPO `../android_kernel_oddo_mt6895` 6.12.23 或小米 6.6 对应内核)、`kernel/build`(MTK mgk bazel 规则)、clang 工具链、`vendor/mediatek/kernel_modules`(connectivity/gpu 等 MTK 通用模块, 6.12 版本在 OPPO 树 `vendor/mediatek/kernel_modules/`)。这些来自用户的完整 MTK repo manifest 环境。
+**Not included in this tree**: GKI common kernel (requires OPPO `../android_kernel_oddo_mt6895` 6.12.23 or Xiaomi 6.6 corresponding kernel), `kernel/build` (MTK mgk bazel rules), clang toolchain, `vendor/mediatek/kernel_modules` (connectivity/gpu etc. MTK common modules, 6.12 version in OPPO tree `vendor/mediatek/kernel_modules/`). These come from the user's complete MTK repo manifest environment.
 
 ---
 
-## 1. 构建(在用户完整 MTK 环境)
+## 1. Build (In User's Complete MTK Environment)
 
-### 1.1 需要的组件
-| 组件 | 来源 | 说明 |
+### 1.1 Required Components
+| Component | Source | Description |
 |---|---|---|
-| GKI common 内核 6.12 | OPPO `../android_kernel_oddo_mt6895`(6.12.23) | 与 modules 树配对编译 |
-| kernel_device_modules-6.12 | 本移植树 | 含 xaga 板级+驱动 |
-| kernel/build (mgk 规则) | MTK alps manifest | bazel/kleaf 构建驱动 |
-| vendor/mediatek/kernel_modules | OPPO 树或 MTK manifest | connectivity/gpu/met_drv/udc(6.12 版, mt6895 已支持) |
-| clang 预编译 | AOSP | - |
+| GKI common kernel 6.12 | OPPO `../android_kernel_oddo_mt6895` (6.12.23) | Paired build with modules tree |
+| kernel_device_modules-6.12 | This porting tree | Contains xaga board + drivers |
+| kernel/build (mgk rules) | MTK alps manifest | bazel/kleaf build driver |
+| vendor/mediatek/kernel_modules | OPPO tree or MTK manifest | connectivity/gpu/met_drv/udc (6.12 version, mt6895 supported) |
+| Clang prebuilt | AOSP | - |
 
-### 1.2 项目注册(mgk 侧, 本树无法完成)
-- **DTBO 列表**:`kernel/build/bazel_mgk_rules` 中把 `xaga` 加入 project 的 DTBO 列表
-  (参考 OPPO 自己的 `arch/arm64/boot/dts/oplus/oplus6895_23021.dts` 注册方式)。
-  ⚠️ 本树 `arch/arm64/boot/dts/mediatek/Makefile` **未注册 xaga**(0 处引用);经典构建
-  路径需自行添加 `dtb-$(CONFIG_ARCH_MEDIATEK) += xaga.dtb xaga_global.dtb`,
-  kleaf 路径则走 mgk 规则的 DTBO 列表(上方主路径)。
-- **模块列表**:`mgk_64.bzl` 已注册 xaga 相关模块(见 §2.3);其余模块走
-  OPPO/MTK 默认列表,需确认 xaga 不需要的模块(oplus_* 已剥离)。
+### 1.2 Project Registration (mgk side, cannot be done in this tree)
+- **DTBO List**: In `kernel/build/bazel_mgk_rules`, add `xaga` to the project DTBO list
+  (refer to OPPO's own `arch/arm64/boot/dts/oplus/oplus6895_23021.dts` registration method).
+  ⚠️ This tree's `arch/arm64/boot/dts/mediatek/Makefile` **has not registered xaga** (0 references); classic build
+  path requires manually adding `dtb-$(CONFIG_ARCH_MEDIATEK) += xaga.dtb xaga_global.dtb`,
+  while kleaf path goes through the DTBO list in mgk rules (main path above).
+- **Module List**: `mgk_64.bzl` has registered xaga-related modules (see §2.3); other modules go through
+  OPPO/MTK default list, verify unneeded modules for xaga (oplus_* already stripped).
 
 ### 1.3 defconfig
-把 `arch/arm64/configs/vendor/xaga.config` merge 到 `mgk_64_k612_defconfig` 之上:
+Merge `arch/arm64/configs/vendor/xaga.config` on top of `mgk_64_k612_defconfig`:
 ```
 scripts/kconfig/merge_config.sh -m -r \
   arch/arm64/configs/mgk_64_k612_defconfig \
   arch/arm64/configs/vendor/xaga.config
 ```
-关键符号:`CONFIG_TOUCHSCREEN_NVT36672C_HOSTDL_SPI=m`(触摸)、
-`CONFIG_DRM_PANEL_L16_*`(面板)、`CONFIG_XMEXT_LN8000/SC8551A_CHG_PUMP=m`(充电泵)、
-`CONFIG_XMEXT_TI_GAUGE=m`(bq28z610 → "bms" psy)、`CONFIG_XM_PD_MANAGER=m`(充电算法,
-**开机后对齐 usb_psy 前保持回退充电, 不插快充头**)、`CONFIG_SIMTRAY_STATUS=m`、
-`CONFIG_INPUT_AW8697_HAPTIC=m`、`CONFIG_TOUCHSCREEN_XIAOMI_DOUBLE_CLICK=m`、
-`CONFIG_MTK_VIDEO_KTD2687=m`(闪光灯)、`CONFIG_DRM_PANEL_LEDS_KTZ8863A=m`(背光)。
+Key symbols: `CONFIG_TOUCHSCREEN_NVT36672C_HOSTDL_SPI=m` (touch),
+`CONFIG_DRM_PANEL_L16_*` (panel), `CONFIG_XMEXT_LN8000/SC8551A_CHG_PUMP=m` (charge pump),
+`CONFIG_XMEXT_TI_GAUGE=m` (bq28z610 -> "bms" psy), `CONFIG_XM_PD_MANAGER=m` (charging algorithm,
+**keep fallback charging before aligning usb_psy after boot, do not plug fast charger**), `CONFIG_SIMTRAY_STATUS=m`,
+`CONFIG_INPUT_AW8697_HAPTIC=m`, `CONFIG_TOUCHSCREEN_XIAOMI_DOUBLE_CLICK=m`,
+`CONFIG_MTK_VIDEO_KTD2687=m` (flash), `CONFIG_DRM_PANEL_LEDS_KTZ8863A=m` (backlight).
 
-> ⚠️ **boot-stage marker(XAGR 环,挂死定位)**:`CONFIG_XAGA_MARKER_WRITER=y`
-> (**内置内核**,源码在 OPPO 内核树 `drivers/misc/xaga-marker-writer.c`,
-> 不再做模块——模块版从未写入)在 **arm64 setup_arch 头部**(`early_ioremap_init`
-> 之后,MMU fixmap 允许的最早映射点)把 **log_store 保留区 0x7ffbf000** 映射为
-> XAGR 环(magic 0x52474158 @0x0000 / cursor @0x0004 / total @0x0008 /
-> stage @0x1000 / 文本环 @0x2000 长 0xE000),并把**每个 printk()**(vprintk_emit
-> 钩子)镜像进环——启动任何阶段挂死,环尾部就是最后一段内核打印。
-> 环随 AP watchdog 复位在 DRAM 保留,下次启动由 **lineage_xaga 内核的
-> xaga-marker 读端**(postcore_initcall dump,dmesg + `/proc/xaga_marker`)打印。
-> 内核挂死时 kmsg_dumper 不触发,故不用 xaga_oops_log/oops 分区方案
-> (已弃用,2026-08-09)。
-> ⚠️ **教训(2026-08-09 实测)**:XAGR 环**绝不能放 minirdump 区 0x48170000**——
-> 写入该区触发 MTK mrdump 机制**立即重启**(diff.txt 注释同款教训);
-> aee/mrdump_mini 也会覆写该区头。换 log_store(0x7ffbf000,NS 安全区、
-> 不在 LK mblock 表、非 mrdump 区)。
-> ⚠️ **注意**:"提前到 setup_arch **前**"在 arm64 上不可行——paging_init 之前
-> 线性映射未建立、0x7ffbf000 不可写,`early_ioremap`(fixmap)是硬件允许的
-> 最早途径;模块加载期(此前模块 notifier 的活)由 printk 镜像自然覆盖。
+> ⚠️ **boot-stage marker (XAGR ring, hang location)**: `CONFIG_XAGA_MARKER_WRITER=y`
+> (**Built-in kernel**, source in OPPO kernel tree `drivers/misc/xaga-marker-writer.c`,
+> no longer built as a module—module version never wrote) maps **log_store reserved area 0x7ffbf000**
+> at **arm64 setup_arch head** (after `early_ioremap_init`, earliest mapping point allowed by MMU fixmap) as
+> XAGR ring (magic 0x52474158 @0x0000 / cursor @0x0004 / total @0x0008 /
+> stage @0x1000 / text ring @0x2000 length 0xE000), and mirrors **every printk()** (vprintk_emit
+> hook) into the ring—hang at any boot stage, ring tail is the last section of kernel log.
+> The ring survives AP watchdog reset in DRAM, next boot printed by **lineage_xaga kernel's
+> xaga-marker reader** (postcore_initcall dump, dmesg + `/proc/xaga_marker`).
+> kmsg_dumper does not trigger during kernel hang, so xaga_oops_log/oops partition scheme is not used
+> (deprecated, 2026-08-09).
+> ⚠️ **Lesson (2026-08-09 test)**: XAGR ring **must never be placed in minirdump area 0x48170000**—
+> writing to this area triggers MTK mrdump mechanism to **reboot immediately** (same lesson noted in diff.txt);
+> aee/mrdump_mini will also overwrite header of this area. Switched to log_store (0x7ffbf000, NS secure area,
+> not in LK mblock table, non-mrdump area).
+> ⚠️ **Note**: "Advancing to **before** setup_arch" is impossible on arm64—before paging_init
+> linear mapping is not established, 0x7ffbf000 is unwriteable, `early_ioremap` (fixmap) is the
+> earliest hardware-permitted path; module loading phase (formerly module notifier's job) is naturally covered by printk mirroring.
 
-### 1.4 产物
-`Image.gz` + `mt6895.dtb` + `xaga.dtbo`(+`xaga_global.dtbo`) + 模块 ko 集。
-打包进 boot/vendor_boot 时注意:dtbo 用 `xaga.dtbo`(CN 版);开机先用 CN 版。
+### 1.4 Artifacts
+`Image.gz` + `mt6895.dtb` + `xaga.dtbo` (+`xaga_global.dtbo`) + module ko set.
+When packaging into boot/vendor_boot note: use `xaga.dtbo` for dtbo (CN version); use CN version first for boot.
 
-#### 打包要求（2026-08-08 实测定型，官方内容验证版可启动）
-- **boot = magiskboot**（`xaga/images/building/tools/magiskboot`，-n 流程）：`unpack -n -h boot_a.img` → 换 kernel（Image.gz 原样）/ ramdisk（`magiskboot cpio ... "add 0755 kernelsu.ko <6.12版>"`）→ `repack -n`。⚠️ 默认 repack 会重新 gzip 压缩 kernel，**实测不能启动**，必须 -n。
-- **vendor_boot = 本地 mkbootimg**（`/tmp/mkboot_new/mkbootimg_lineage-21.0.py`）：`--vendor_boot out.img --vendor_ramdisk <官方完整ramdisk区42,743,860B 含2,005B "TRAILER!!!"尾部> --dtb <DTBO_TAG容器> --vendor_cmdline "bootopt=64S3,32N2,64N2" --base 0x40000000 --kernel_offset 0 --ramdisk_offset 0x26f00000 --tags_offset 0x7c80000 --dtb_offset 0x7c80000 --header_version 4 --pagesize 4096 --board ""`；产物需 patch vrt 偏移 43,077,632 处 4 字节为 42,741,855 + pad 到 64MB。⚠️ magiskboot 打包 vendor_boot 实测失败（丢 2,005B 尾部 + ramdisk_size 字段不符），勿用。
-- 详细配方见容器根 `AGENTS.md`「xaga 镜像打包要求」小节与 `xaga/README.md`。
+#### Packaging Requirements (Finalized 2026-08-08, verified official content version bootable)
+- **boot = magiskboot** (`xaga/images/building/tools/magiskboot`, -n flow): `unpack -n -h boot_a.img` -> replace kernel (Image.gz original) / ramdisk (`magiskboot cpio ... "add 0755 kernelsu.ko <6.12 version>"`) -> `repack -n`. ⚠️ Default repack re-gzips kernel, **tested unable to boot**, must use -n.
+- **vendor_boot = local mkbootimg** (`/tmp/mkboot_new/mkbootimg_lineage-21.0.py`): `--vendor_boot out.img --vendor_ramdisk <official complete ramdisk area 42,743,860B containing 2,005B "TRAILER!!!" tail> --dtb <DTBO_TAG container> --vendor_cmdline "bootopt=64S3,32N2,64N2" --base 0x40000000 --kernel_offset 0 --ramdisk_offset 0x26f00000 --tags_offset 0x7c80000 --dtb_offset 0x7c80000 --header_version 4 --pagesize 4096 --board ""` ; artifact needs patch vrt offset 43,077,632 location 4 bytes to 42,741,855 + pad to 64MB. ⚠️ magiskboot packaging vendor_boot tested failure (loses 2,005B tail + ramdisk_size field mismatch), do not use.
+- Detailed recipe see container root `AGENTS.md` "xaga image packaging requirements" subsection and `xaga/README.md`.
 
-### 1.5 模块覆盖(官方 198 → 6.12, 无硬缺口)
-官方 5.10 ramdisk 的 198 个 .ko(vermagic `5.10.198`, 6.12 内核无法加载)由 6.12 侧四层覆盖:
-① 123 打包模块中 109 个同名直接替代;② 更名/合并(clkchk/mt6375-gauge/mtk_system_heap/
-pinctrl-mtk-common-v2/fan53870-ldo 等, 详见 STATUS.md §4);③ 约 30 个 6.12 内核内置
-(mediatek-drm*/mtk-mmc-autok/regmap-spmi/mac80211 等, 无需 .ko);④ 调试诊断类非必需省略。
-**唯一无对应物 = `mi-memory`**(小米私有, 非启动必需)。
+### 1.5 Module Coverage (Official 198 -> 6.12, no hard gaps)
+Official 5.10 ramdisk's 198 .ko files (vermagic `5.10.198`, 6.12 kernel unable to load) covered in 4 layers on 6.12 side:
+① 109 out of 123 packaged modules directly replaced with same name; ② Renamed/merged (clkchk/mt6375-gauge/mtk_system_heap/pinctrl-mtk-common-v2/fan53870-ldo etc., see STATUS.md §4); ③ ~30 built into 6.12 kernel (mediatek-drm*/mtk-mmc-autok/regmap-spmi/mac80211 etc., no .ko needed); ④ Debug/diagnostic omitted as non-essential.
+**Only non-counterpart = `mi-memory`** (Xiaomi proprietary, not required for boot).
 
-**2026-08-10 打包集扩展为 197 ko**:init 首阶段按 modules.load 拓扑序逐个 insmod, 任一
-`Unknown symbol` 即 `Attempted to kill init`;经全量 `llvm-nm` 审计恢复约 60 个提供者模块
-(mediatek_v2/mml/devapc/iommu/cmdq/tcpc_class/cqhci/gpufreq v2+hal/slbc/hwccf/mtu3/
-system_heap 等, 全部按 alps `BUILD.bazel`), **197 ko、0 undefined**——完整依赖表与移植
-方法论见 `xaga-drm-restore.md`。打包阶段对 .ko `llvm-strip --strip-debug`(官方无 DWARF,
-移植树带 DWARF5 达 130MB, strip 后 25MB)。
+**2026-08-10 Packaging set expanded to 197 ko**: init first stage insmod one-by-one per modules.load topological order, any `Unknown symbol` causes `Attempted to kill init`; restored ~60 provider modules after full `llvm-nm` audit (mediatek_v2/mml/devapc/iommu/cmdq/tcpc_class/cqhci/gpufreq v2+hal/slbc/hwccf/mtu3/system_heap etc., all per alps `BUILD.bazel`), **197 ko, 0 undefined**—full dependency table and porting methodology see `xaga-drm-restore.md`. Packaging stage performs `llvm-strip --strip-debug` on .ko (official has no DWARF, porting tree with DWARF5 reaches 130MB, 25MB after strip).
 
 ---
 
-## 2. 开机 bring-up(上电顺序)
+## 2. Boot Bring-up (Power-on Sequence)
 
-> 原则:先让内核起来、亮屏、进系统;再逐项开功能。每一步看对应日志特征。
+> Principle: Get kernel up, light up screen, enter system first; then enable features one by one. Check corresponding log signatures at each step.
 
-### 2.0 启动链路检查
-1. **bootloader 加载**:确认 preloader/lk 把 `mt6895.dtb`(SoC base)+ `xaga.dtbo`(board overlay)按序应用。
-   报错特征:`overlay not applied` → DTBO 列表未含 xaga(§1.2)。
-2. **early log 检查点**(dmesg):
-   - `mt6895` SoC 初始化、`androidboot.hardware=mt6895`(xaga.dts bootargs_ext 已带)
-   - DTS 校验:内核会打 `OF: fdt: ...` / 卡死则查 §2.1
+### 2.0 Boot Chain Check
+1. **bootloader loading**: Confirm preloader/lk applies `mt6895.dtb` (SoC base) + `xaga.dtbo` (board overlay) in sequence.
+   Error signature: `overlay not applied` -> DTBO list missing xaga (§1.2).
+2. **early log checkpoints** (dmesg):
+   - `mt6895` SoC initialization, `androidboot.hardware=mt6895` (xaga.dts bootargs_ext already included)
+   - DTS verification: Kernel outputs `OF: fdt: ...` / if stuck check §2.1
 
-### 2.1 若启动卡死/panic,按序排查
-| 症状 | 排查 | 对应代码 |
+### 2.1 Boot Stuck / Panic Troubleshooting
+| Symptom | Check | Corresponding Code |
 |---|---|---|
-| dtc 编译错/加载错 | 板级 DTS 引用未解析(本树已静态验证 210 引用, 再核对你环境里 base 是否一致) | arch/arm64/boot/dts/mediatek/xaga*.dts |
-| mtee/svp 相关 panic | xaga.dts 的 memory_ssmr svp-region 依赖 TEE;若无 TEE 固件, 改用 xaga_global.dts(无 svp) | xaga.dts vs xaga_global.dts |
-| `exports duplicate symbol` → init kill | 两个模块导出同名符号(devapc legacy/mmdvfs-v3-v5/mmdebug-vcp-stub/gud ffa 四对, 已修);新出现时 `grep -n "exports duplicate"` 定位, 按 alps mgk_64.bzl 平台映射留其一 | drivers/{soc/mediatek,tee/gud}/Makefile |
-| `Unknown symbol` → init kill | 提供者模块缺失:① OOT 模块漏打包 ② **K 树 `=m` in-tree 模块没进 vendor_boot**(drm_display_helper/drm_dma_helper/iio buffer/kfifo 已修) ③ 复合模块 `-y` 漏主文件(gateic 已修) | build.sh pack_vendor / 各 Makefile |
-| mmqos NULL deref Oops | DTS 属性名须 6.12 语法:`mediatek,larbs-supply`/`mediatek,commons-supply`/`mmqos-state`(5.10 旧名已修) | mt6895.dts mmqos 节点 |
-| mmqos→dramc NULL drvdata | dramc probe 缺 DTS 属性早退但 `dramc_pdev` 已赋值;4 个 getter 已有 NULL 守卫 | drivers/memory/mediatek/dramc.c |
-| msdc1 QoS `plist_del` BUG | **xaga 无 SD 槽** → mmc1 保持 disabled(xaga-mt6895.dtsi 覆盖;6.12 mtk-mmc 有 cpu_latency_qos, 5.10 无) | xaga-mt6895.dtsi `&mmc1` |
-| UFS `legacy doorbell mode not supported` | ufshci 节点需 `mediatek,ufs-disable-mcq`(MT6895 UFS 是 legacy-doorbell, 5.10 移植丢失) | mt6895.dts ufshci 节点 |
-| init `partition(s) not found` 超时 | 上一条(UFS 没起来)的连锁;UFS 修好后自愈 | — |
-| init 第二阶段 `libbacktrace.so not found` | **LK boot mode 2(recovery)**: `First stage mount skipped (recovery mode)` → system 未挂载。非内核缺陷, 检查 BCB/misc 或正常重启(§2.4) | 用户操作 |
-| 卡在 display probe | L16 面板驱动依赖 3 个 provider(见 §3.3), 缺则 probe 失败→黑屏; 先用 `xaga_global.dts` + 确认 `CONFIG_DRM_PANEL_L16_*`+`CONFIG_DRM_PANEL_LEDS_KTZ8863A` 已启 | panel-l16-*.c, leds-ktz8863a.c |
-| 卡在触摸 | NVT36672C probe;确认 `CONFIG_TOUCHSCREEN_NVT36672C_HOSTDL_SPI=m`、spi2 节点 | drivers/input/touchscreen/NVT36672C/ |
-| 充电 IC probe 失败 | i2c9/i2c7 节点(lm8000/sc8551/bq28z610)已在 DTS;bq28z610 probe 失败→无 "bms" psy(§3.2 依赖它) | drivers/power/supply/{ln8000,sc8551,bq28z610}*.c |
+| dtc compile/load error | Board DTS reference unresolved (this tree statically verified 210 references, recheck if base in your environment matches) | arch/arm64/boot/dts/mediatek/xaga*.dts |
+| mtee/svp related panic | xaga.dts memory_ssmr svp-region depends on TEE; if no TEE firmware, use xaga_global.dts (no svp) | xaga.dts vs xaga_global.dts |
+| `exports duplicate symbol` -> init kill | Two modules export same symbol name (devapc legacy/mmdvfs-v3-v5/mmdebug-vcp-stub/gud ffa four pairs, fixed); locate via `grep -n "exports duplicate"` if new appears, keep per alps mgk_64.bzl platform mapping | drivers/{soc/mediatek,tee/gud}/Makefile |
+| `Unknown symbol` -> init kill | Missing provider module: ① OOT module missed packaging ② **K tree `=m` in-tree module not in vendor_boot** (drm_display_helper/drm_dma_helper/iio buffer/kfifo fixed) ③ Composite module `-y` missed main file (gateic fixed) | build.sh pack_vendor / respective Makefiles |
+| mmqos NULL deref Oops | DTS property names must use 6.12 syntax: `mediatek,larbs-supply`/`mediatek,commons-supply`/`mmqos-state` (5.10 old names fixed) | mt6895.dts mmqos node |
+| mmqos->dramc NULL drvdata | dramc probe returned early due to missing DTS property but `dramc_pdev` already assigned; 4 getters now guarded with NULL checks | drivers/memory/mediatek/dramc.c |
+| msdc1 QoS `plist_del` BUG | **xaga has no SD slot** -> mmc1 kept disabled (xaga-mt6895.dtsi override; 6.12 mtk-mmc has cpu_latency_qos, 5.10 does not) | xaga-mt6895.dtsi `&mmc1` |
+| UFS `legacy doorbell mode not supported` | ufshci node requires `mediatek,ufs-disable-mcq` (MT6895 UFS is legacy-doorbell, lost during 5.10 porting) | mt6895.dts ufshci node |
+| init `partition(s) not found` timeout | Cascading effect of above (UFS not up); self-heals after fixing UFS | — |
+| init second stage `libbacktrace.so not found` | **LK boot mode 2 (recovery)**: `First stage mount skipped (recovery mode)` -> system not mounted. Not a kernel defect, check BCB/misc or normal reboot (§2.4) | User operation |
+| Stuck at display probe | L16 panel driver depends on 3 providers (see §3.3), probe failure -> black screen if missing; try `xaga_global.dts` + confirm `CONFIG_DRM_PANEL_L16_*` + `CONFIG_DRM_PANEL_LEDS_KTZ8863A` enabled | panel-l16-*.c, leds-ktz8863a.c |
+| Stuck at touch | NVT36672C probe; confirm `CONFIG_TOUCHSCREEN_NVT36672C_HOSTDL_SPI=m`, spi2 node | drivers/input/touchscreen/NVT36672C/ |
+| Charger IC probe failed | i2c9/i2c7 nodes (lm8000/sc8551/bq28z610) present in DTS; bq28z610 probe fail -> no "bms" psy (§3.2 depends on it) | drivers/power/supply/{ln8000,sc8551,bq28z610}*.c |
 
-### 2.4 启动模式(recovery)排查
+### 2.4 Boot Mode (Recovery) Troubleshooting
 
-**症状**:内核与全部模块正常加载(`Loaded 197 kernel modules took 707 ms`), 但
-`init: First stage mount skipped (recovery mode)` → `/system/bin/init` 报
-`library "libbacktrace.so" not found` → `Attempted to kill init`(exitcode 0x100)。
+**Symptom**: Kernel and all modules load normally (`Loaded 197 kernel modules took 707 ms`), but
+`init: First stage mount skipped (recovery mode)` -> `/system/bin/init` reports
+`library "libbacktrace.so" not found` -> `Attempted to kill init` (exitcode 0x100).
 
-**原因**:LK 以 `boot mode = 2`(recovery)启动内核(`boot_linux_fdt: lk boot mode = 2`)。
-recovery 环境下 system 分区未挂载, init 无法链接系统库。**非内核/模块问题**。
+**Reason**: LK boots kernel with `boot mode = 2` (recovery) (`boot_linux_fdt: lk boot mode = 2`).
+System partition is not mounted in recovery environment, init cannot link system libraries. **Not a kernel/module issue**.
 
-**处理**:
-1. `fastboot reboot`(不带 recovery 参数)正常重启, 观察 boot mode 是否回 0
-2. 若仍进 recovery: 检查 misc 分区 BCB(bootloader message)是否残留
-   `boot-recovery` 标志(`fastboot erase misc` 或 recovery 内 `adb reboot`)
-3. 确认 `androidboot.bootmode` / `bootmode` tag(LK 通过 pl-boottag 传内核)
+**Handling**:
+1. `fastboot reboot` (without recovery parameter) normal reboot, observe if boot mode returns to 0
+2. If still entering recovery: Check if misc partition BCB (bootloader message) retains
+   `boot-recovery` flag (`fastboot erase misc` or `adb reboot` inside recovery)
+3. Confirm `androidboot.bootmode` / `bootmode` tag (passed from LK to kernel via pl-boottag)
 
-### 2.2 开机必须 probe 成功的驱动(按顺序)
+### 2.2 Boot Required Probe Drivers (In Order)
 ```
-mtk 框架(mtk_charger/mtk_battery/mtk_disp_*)  ← 6.12 原生, 一般 OK
-├─ bq28z610 (i2c7, 注册 "bms" psy)           ← 电量计, 管理器依赖
-├─ ln8000/sc8551 (i2c9, 双充电泵)            ← 快充硬件
-├─ NVT36672C (spi2, 触摸)                    ← 必须, 否则无法解锁/进桌面
-├─ L16 面板 (dsi0) + ktz8863a 背光 (i2c6)    ← 必须, 否则黑屏
-├─ aw8697_haptic (i2c1)                      ← 可选(震动)
-└─ simtray (GPIO42)                          ← 可选(卡托检测)
+mtk framework (mtk_charger/mtk_battery/mtk_disp_*)  ← 6.12 native, generally OK
+├─ bq28z610 (i2c7, registers "bms" psy)             ← Fuel gauge, manager dependency
+├─ ln8000/sc8551 (i2c9, dual charge pumps)          ← Fast charge hardware
+├─ NVT36672C (spi2, touch)                          ← Required, otherwise unable to unlock/enter desktop
+├─ L16 panel (dsi0) + ktz8863a backlight (i2c6)     ← Required, otherwise black screen
+├─ aw8697_haptic (i2c1)                             ← Optional (haptics)
+└─ simtray (GPIO42)                                 ← Optional (sim tray detection)
 ```
 
-### 2.3 模块注册核对(mgk_64.bzl 已有, 构建时确认在列)
+### 2.3 Module Registration Verification (Already in mgk_64.bzl, confirm listed during build)
 `bq28z610` / `sc8551` / `sc8561` / `ln8000_charger` / `pmic_voter` /
-`pd_cp_manager` / `charger_class`(power/supply);
-`nt36672c`(touchscreen/NVT36672C);`panel-l16-*` + `leds-ktz8863a`(drm/panel);
-`aw8697_haptic`(input/misc, 经 ddk_makefile glob);`simtray`(misc, Kconfig 接线)。
-> 注:KTD2687 闪光灯走 `drivers/misc/mediatek` 的 BUILD.bazel(mtk-composite 接线, 非
-> mgk_64.bzl device_modules);6 颗 sensor 走 src-v4l2(见 §6)。qc_cp_manager 源码在树内但
-> 不启用(xaga 是 MTK PD 快充设备, 5.10 也未启用 QC 管理器)。
+`pd_cp_manager` / `charger_class` (power/supply);
+`nt36672c` (touchscreen/NVT36672C); `panel-l16-*` + `leds-ktz8863a` (drm/panel);
+`aw8697_haptic` (input/misc, via ddk_makefile glob); `simtray` (misc, Kconfig wired).
+> Note: KTD2687 flash goes through `drivers/misc/mediatek` BUILD.bazel (mtk-composite wiring, not mgk_64.bzl device_modules); 6 sensors go through src-v4l2 (see §6). qc_cp_manager source present in tree but not enabled (xaga is MTK PD fast charge device, 5.10 also did not enable QC manager).
 
 ---
 
-## 3. 开机后的功能对齐(重点: usb_psy / 充电管理器)
+## 3. Post-Boot Function Alignment (Focus: usb_psy / Charging Manager)
 
-> 背景:5.10 xaga 充电 psy 名为 `"usb"`;6.12 树注册为 `"mtk-master-charger"`
-> (mtk_charger.c:4127)。drvdata 都是 `struct mtk_charger*`(类型一致, 无需处理)。
-> 移植的 usb_get/set_property 与管理器仍查 `"usb"` → 返回 -ENODEV, 字段全 0。
+> Background: 5.10 xaga charging psy named `"usb"`; 6.12 tree registered as `"mtk-master-charger"`
+> (mtk_charger.c:4127). drvdata are both `struct mtk_charger*` (type identical, no handling needed).
+> Ported usb_get/set_property and manager still query `"usb"` -> returns -ENODEV, fields all 0.
 
-### 3.1 第 1 步: psy 名称对齐 ✅ 已实现
-5 处 `power_supply_get_by_name("usb")` → `"mtk-master-charger"`:
+### 3.1 Step 1: psy Name Alignment ✅ Implemented
+5 locations `power_supply_get_by_name("usb")` -> `"mtk-master-charger"`:
 ```
-drivers/power/supply/mtk_charger.c          :4439/4453  (usb_get/set_property 内)
+drivers/power/supply/mtk_charger.c          :4439/4453  (inside usb_get/set_property)
 drivers/power/supply/pd_cp_manager.c        :270
-drivers/power/supply/pd_single_cp_manager.c :230   (xaga 不构建, 顺带改)
+drivers/power/supply/pd_single_cp_manager.c :230   (xaga does not build, modified in passing)
 drivers/power/supply/qc_cp_manager.c        :238
 ```
-⚠️ 不要反向把 psy 改名为 "usb"(6.12 内部 20+ 处调用 + 属性表, 风险大)。
+⚠️ Do not reverse rename psy to "usb" (20+ calls inside 6.12 + property table, high risk).
 
-### 3.2 第 2 步: USB_PROP 字段写入方 ✅ 已实现(带 CONFIG_XM_PD_MANAGER 保护)
-6.12 原无写入方 → 字段恒 0 → 管理器拿不到 typec 方向/PD 状态 → 不进入快充。
-已镜像 5.10 调用:
+### 3.2 Step 2: USB_PROP Field Writers ✅ Implemented (guarded with CONFIG_XM_PD_MANAGER)
+6.12 originally had no writer -> fields constantly 0 -> manager cannot get typec orientation/PD status -> does not enter fast charging.
+Mirrored 5.10 calls:
 ```
-drivers/power/supply/mtk_chg_type_det.c  (TCP_NOTIFY_TYPEC_STATE 分支, ~:196)
+drivers/power/supply/mtk_chg_type_det.c  (TCP_NOTIFY_TYPEC_STATE branch, ~:196)
     usb_set_property(USB_PROP_TYPEC_MODE, POWER_SUPPLY_TYPEC_SINK/AUDIO_ADAPTER/NONE);
     usb_set_property(USB_PROP_TYPEC_CC_ORIENTATION, noti->typec_state.polarity);
-drivers/power/supply/mtk_pd_adapter.c    (pd_authentication 成功路径, ~:568)
+drivers/power/supply/mtk_pd_adapter.c    (pd_authentication success path, ~:568)
     usb_set_property(USB_PROP_PD_VERIFYING, 1);
     usb_set_property(USB_PROP_PD_VERIFY_DONE, 0);
     usb_set_property(USB_PROP_APDO_MAX, data->pdp);
@@ -197,88 +188,88 @@ drivers/power/supply/mtk_pd_adapter.c    (pd_authentication 成功路径, ~:568)
     (+ #include "mtk_charger.h" under CONFIG_XM_PD_MANAGER)
 ```
 
-> ✅ **状态(2026-08-06)**:§3.1 的 5 处名称替换(commit 109b0d0)、§3.2 的两个写入方
-> (commit 109b0d0/19311e8)均已实现并提交,上机只需验证,无需再改代码。
+> ✅ **Status (2026-08-06)**: §3.1's 5 name replacements (commit 109b0d0), §3.2's two writers
+> (commit 109b0d0/19311e8) are implemented and committed, only verification needed on device, no code changes required.
 
-### 3.3 已知依赖(已移植, 勿删)
-- 面板 `panel-l16-*.c` 引用 3 个 provider:`is_tp_doubleclick_enable()`
-  (double_click.c)、`get_panel_dead_flag()`(mtk_disp_recovery.c)、`ktz8863a_*`
-  (leds-ktz8863a.c) — 均已移植并接线。
-- `pd_cp_manager` 还依赖 psy:`"bms"`(bq28z610 注册)、`"battery"`(mtk-battery-manager 注册)。
+### 3.3 Known Dependencies (Ported, do not delete)
+- Panel `panel-l16-*.c` references 3 providers: `is_tp_doubleclick_enable()`
+  (double_click.c), `get_panel_dead_flag()` (mtk_disp_recovery.c), `ktz8863a_*`
+  (leds-ktz8863a.c) — all ported and wired.
+- `pd_cp_manager` also depends on psy: `"bms"` (registered by bq28z610), `"battery"` (registered by mtk-battery-manager).
 
-### 3.4 上机验证顺序
+### 3.4 Hardware Verification Sequence
 ```
-1. dmesg 确认上述驱动 probe 成功(§2.2 顺序)
-2. ls /sys/class/power_supply/  → 应有 mtk-master-charger, bms, battery
+1. dmesg confirms above drivers probe successfully (§2.2 sequence)
+2. ls /sys/class/power_supply/  → should have mtk-master-charger, bms, battery
 3. zcat /proc/config.gz | grep XM_PD_MANAGER → =m
-4. 插 5V 充电器 → 观察 mtk_charger 日志(普通充电, 不依赖管理器)
-5. 插 PD 快充头 → pd_cp_manager 日志(依赖 §3.1+§3.2 完成)
-6. 未完成 §3.1 前: 管理器会因 usb_psy 失败回退, 不会烧硬件, 放心测试
+4. Plug 5V charger → observe mtk_charger log (normal charging, does not depend on manager)
+5. Plug PD fast charger → pd_cp_manager log (depends on §3.1+§3.2 completion)
+6. Before completing §3.1: Manager falls back due to usb_psy failure, won't burn hardware, test safely
 ```
 
 ---
 
-## 4. 决策记录(为什么这样做)
+## 4. Decision Log (Why Done This Way)
 
-| 决策 | 理由 |
+| Decision | Reason |
 |---|---|
-| 基于 OPPO `android_kernel_oddo_mt6895` 而非小米 6.6 | 同版本(6.12)优先; 小米 6.6 是 GKI common 且无 MTK 设备层 |
-| 板级 DTS 直接移植 5.10 ESK 链, 不 include k6895v1_64.dts | 两树定义相同 label → DTC 重复标签错误 |
-| 触摸用 NVT36672C 而非 6.12 NT36532 | xaga 实际出货驱动(双击唤醒+游戏参数); NT36532 只有基础绑定 |
-| 充电管理器默认开启, 但 usb_psy 对齐留到真机 | 编译无碍; 真机回退安全 |
-| C7 不移植 fpsgo_cus/msync2_frd_cus | fpsgo 被 6.12 fpsgo_v3 完整覆盖; msync2 核心是闭源 5.10 二进制 |
-| dtbo.dts.0(实机反编译)与移植 DTS 逐节点吻合 | 板级 DTS 得到实机验证, 无需改动 |
+| Based on OPPO `android_kernel_oddo_mt6895` instead of Xiaomi 6.6 | Same version (6.12) preferred; Xiaomi 6.6 is GKI common without MTK device layer |
+| Board DTS directly ported from 5.10 ESK chain, does not include k6895v1_64.dts | Both trees define same labels -> DTC duplicate label error |
+| Touch uses NVT36672C instead of 6.12 NT36532 | xaga actual shipping driver (double-tap wake + game parameters); NT36532 only has basic bindings |
+| Charging manager enabled by default, but usb_psy alignment left for physical device | No build issue; safe fallback on physical device |
+| C7 does not port fpsgo_cus/msync2_frd_cus | fpsgo fully covered by 6.12 fpsgo_v3; msync2 core is closed source 5.10 binary |
+| dtbo.dts.0 (decompiled from physical device) matches ported DTS node by node | Board DTS verified on physical device, no changes required |
 
-## 5. 遗留事项(非开机阻塞)
-- [x] §3.1 psy 名称对齐 — **已实现并提交**(commit 109b0d0)
-- [x] §3.2 USB_PROP 写入方(mtk_chg_type_det + mtk_pd_adapter)— **已实现并提交**(commit 109b0d0/19311e8)
-- [x] **init 阶段模块加载链** — **2026-08-11 真机全通**(197 ko / 707ms, §2.1 排查表逐项修复)
-- [ ] **进系统验证**(boot mode 0 后): init 第二阶段 / zygote / 桌面(§2.4)
-- [ ] 真机上验证 §3.4 验证顺序(充电流程, 需进系统)
-- [ ] 触控 fw(nt36672e fw 文件)放入 vendor 分区对应路径
-- [ ] xaga_global 变体开机验证(若 CN 版 TEE/svp 有问题时用)
-- [ ] mtk-master-charger 名字的 kABI/模块加载顺序核对(若有 modprobe 依赖)
-- [x] **指纹驱动(goodix_cap)**: 已移植至标准 Linux 6.12 SPI 子系统 API(gf3626zs9.c)
-- [ ] **sensor 用户环境合入**: 在用户环境 `src-v4l2/BUILD.bazel` 的 `config_cust_kernel_imgsensor` 追加 6 个 xaga* 名字(步骤见 §6)
-- [ ] **lm3644 注册残留清理**(可选): `mgk_64.bzl:1361` 给 mt6895 注册了 lm3644, xaga 用 KTD2687 不用, 保留无害可删
+## 5. Remaining Items (Non-Boot Blocking)
+- [x] §3.1 psy name alignment — **Implemented and committed** (commit 109b0d0)
+- [x] §3.2 USB_PROP writers (mtk_chg_type_det + mtk_pd_adapter) — **Implemented and committed** (commit 109b0d0/19311e8)
+- [x] **init stage module load chain** — **2026-08-11 All passed on physical device** (197 ko / 707ms, §2.1 troubleshooting table fixed item by item)
+- [ ] **System Boot Verification** (after boot mode 0): init second stage / zygote / desktop (§2.4)
+- [ ] Verify §3.4 verification sequence on physical device (charging flow, requires system boot)
+- [ ] Touch fw (nt36672e fw file) placed in vendor partition corresponding path
+- [ ] xaga_global variant boot verification (if CN version TEE/svp has issues)
+- [ ] mtk-master-charger name kABI/module load order check (if modprobe has dependencies)
+- [x] **Fingerprint Driver (goodix_cap)**: Ported to standard Linux 6.12 SPI subsystem APIs (`gf3626zs9.c`)
+- [ ] **Sensor User Environment Merge**: Append 6 xaga* names in user environment `src-v4l2/BUILD.bazel` `config_cust_kernel_imgsensor` (steps see §6)
+- [ ] **lm3644 Registration Cleanup** (optional): `mgk_64.bzl:1361` registered lm3644 for mt6895, xaga uses KTD2687 instead, retaining is harmless and removable
 
-## 6. 相机 sensor 移植(2026-08-07, 已提交 7f75af8 + f3e8e80)
-xaga 的 6 颗 camera sensor 驱动已从 5.10 ESK 移植到本树:
+## 6. Camera Sensor Porting (2026-08-07, Committed 7f75af8 + f3e8e80)
+xaga's 6 camera sensor drivers have been ported from 5.10 ESK to this tree:
 
-| sensor | 角色 | 目录 |
+| Sensor | Role | Directory |
 |---|---|---|
-| s5khm2 | 主摄(108MP) | `vendor/mediatek/kernel_modules/mtkcam/imgsensor/src-v4l2/common/xagas5khm2_mipi_raw/` |
-| s5k4h7 | 主摄备份 | `.../xagas5k4h7_mipi_raw/` |
-| ov16a1 | 前摄 | `.../xagaov16a1_mipi_raw/` |
-| s5kgw1 | 超广角 | `.../xagas5kgw1_mipi_raw/` |
-| gc02m1 | 微距 | `.../xagagc02m1_mipi_raw/` |
-| ov02b10 | 前摄备份 | `.../xagaov02b10_mipi_raw/` |
+| s5khm2 | Main camera (108MP) | `vendor/mediatek/kernel_modules/mtkcam/imgsensor/src-v4l2/common/xagas5khm2_mipi_raw/` |
+| s5k4h7 | Main camera backup | `.../xagas5k4h7_mipi_raw/` |
+| ov16a1 | Front camera | `.../xagaov16a1_mipi_raw/` |
+| s5kgw1 | Ultra-wide angle | `.../xagas5kgw1_mipi_raw/` |
+| gc02m1 | Macro | `.../xagagc02m1_mipi_raw/` |
+| ov02b10 | Front camera backup | `.../xagaov02b10_mipi_raw/` |
 
-已做适配:
-- `subdrv.mk` → 6.12 `Makefile`(`imgsensor-objs += $(subdrv-rpath)/<name>mipiraw_Sensor.o`)
-- `kd_imgsensor.h`: 补 6 个 `XAGA*_SENSOR_ID` + `SENSOR_DRVNAME_XAGA*` 宏(从 5.10 原样搬入)
-- gc02m1/ov02b10(8-bit reg): `subdrv_i2c_{rd,wr}_u8_u8` → 6.12 `_u8_reg8`; 缺 `wr_regs_u8_u8`(2 字节表写), 在 sensor 内新增本地 `*_table_write()` 循环实现
-- 6 颗 sensor 均通过 -fsyntax-only 对 6.12 mtkcam v4l2 框架(subdrv_ctx/subdrv_ops/subdrv_entry)的编译验证
+Adapted:
+- `subdrv.mk` -> 6.12 `Makefile` (`imgsensor-objs += $(subdrv-rpath)/<name>mipiraw_Sensor.o`)
+- `kd_imgsensor.h`: Added 6 `XAGA*_SENSOR_ID` + `SENSOR_DRVNAME_XAGA*` macros (imported as-is from 5.10)
+- gc02m1/ov02b10 (8-bit reg): `subdrv_i2c_{rd,wr}_u8_u8` -> 6.12 `_u8_reg8`; missing `wr_regs_u8_u8` (2-byte table write), added local `*_table_write()` loop implementation inside sensor
+- All 6 sensors passed compilation verification via -fsyntax-only against 6.12 mtkcam v4l2 framework (subdrv_ctx/subdrv_ops/subdrv_entry)
 
-**用户完整 MTK 环境合入步骤(bazel/kleaf 路径, 本树无法完成)**:
-1. 把本树 `vendor/mediatek/kernel_modules/mtkcam/imgsensor/src-v4l2/common/xaga*/` 6 个目录合入用户环境同路径(或直接使用本树 vendor/ 增量)
-2. 在用户环境 `mtkcam/imgsensor/src-v4l2/BUILD.bazel` 的 `config_cust_kernel_imgsensor` 字符串中追加:
+**User Complete MTK Environment Merge Steps (bazel/kleaf path, cannot be completed in this tree)**:
+1. Merge 6 directories in `vendor/mediatek/kernel_modules/mtkcam/imgsensor/src-v4l2/common/xaga*/` into the same path in user environment (or directly use vendor/ delta of this tree)
+2. In user environment `mtkcam/imgsensor/src-v4l2/BUILD.bazel` `config_cust_kernel_imgsensor` string, append:
    `xagas5khm2_mipi_raw xagas5k4h7_mipi_raw xagaov16a1_mipi_raw xagas5kgw1_mipi_raw xagagc02m1_mipi_raw xagaov02b10_mipi_raw`
-   (bazel 路径按该硬编码列表 ∩ common/**/Makefile 收集; make/Kbuild 路径则自动读 CONFIG_CUSTOM_KERNEL_IMGSENSOR, xaga.config 已声明, 无需改)
-3. xaga.config 的 `CONFIG_CUSTOM_KERNEL_IMGSENSOR` 已含 6 颗(不必动)
-4. DTS 侧 `xaga_mt6895_camera_v4l2.dtsi` 的 imgsensor 节点 compatible 对应 sensor 名, 已由板级 DTS 提供
+   (bazel path collects per hardcoded list ∩ common/**/Makefile; make/Kbuild path automatically reads CONFIG_CUSTOM_KERNEL_IMGSENSOR, declared in xaga.config, no change needed)
+3. xaga.config `CONFIG_CUSTOM_KERNEL_IMGSENSOR` already contains 6 sensors (no need to touch)
+4. DTS side `xaga_mt6895_camera_v4l2.dtsi` imgsensor node compatible corresponds to sensor name, already provided by board DTS
 
-注意: sensor 驱动只依赖 v4l2 框架(用户环境 mtkcam), 不在 mgk_64.bzl 的 device_modules 列表; 若构建报缺 `subdrv_i2c_wr_u8_u8` 之类符号, 说明用户环境 mtkcam 版本更老, 以本树 Makefile/本地表写为准即可。
+Note: Sensor drivers only depend on v4l2 framework (user environment mtkcam), not in mgk_64.bzl device_modules list; if build reports missing symbols like `subdrv_i2c_wr_u8_u8`, it indicates older mtkcam version in user environment, rely on Makefile/local table write in this tree.
 
-## 7. 闪光灯与快充协议(2026-08-07, 非开机阻塞)
+## 7. Flashlight and Fast Charge Protocols (2026-08-07, Non-Boot Blocking)
 
-### 7.1 KTD2687 相机闪光灯(commit e321232/1aadba1)
-- 驱动:`drivers/misc/mediatek/flashlight/v4l2/ktd2687.c`,双灯(v4l2 subdev)。
-- 接线:`CONFIG_MTK_VIDEO_KTD2687=m` + flashlight 核心/composite 已恢复(顶层 Kbuild
-  obj-y + `drivers/misc/mediatek` BUILD.bazel ddk_makefile/ddk_kconfigs)。
-- 上机验证:`/sys/class/leds/` 出现 ktd2687 相关节点,相机开闪光灯日志无 probe 失败。
+### 7.1 KTD2687 Camera Flashlight (commit e321232/1aadba1)
+- Driver: `drivers/misc/mediatek/flashlight/v4l2/ktd2687.c`, dual light (v4l2 subdev).
+- Wiring: `CONFIG_MTK_VIDEO_KTD2687=m` + flashlight core/composite restored (top-level Kbuild
+  obj-y + `drivers/misc/mediatek` BUILD.bazel ddk_makefile/ddk_kconfigs).
+- Hardware Verification: `/sys/class/leds/` shows ktd2687 related nodes, camera flash log has no probe failures.
 
-### 7.2 MTK Pump Express 协议(commit 4b2d268)
-- 恢复 pep/pep20/pep40/pep45/pep50/pep50p 六个协议模块(`mtk_pep*`, 自 alps 同步),
-  注册进 mgk_64.bzl device_modules。
-- 配合 `CONFIG_XM_PD_MANAGER=m` 在 PD 快充协商时选择 PE 协议分支, 不阻塞开机。
+### 7.2 MTK Pump Express Protocol (commit 4b2d268)
+- Restored pep/pep20/pep40/pep45/pep50/pep50p six protocol modules (`mtk_pep*`, synchronized from alps),
+  registered in mgk_64.bzl device_modules.
+- Works with `CONFIG_XM_PD_MANAGER=m` to select PE protocol branch during PD fast charge negotiation, non-boot blocking.

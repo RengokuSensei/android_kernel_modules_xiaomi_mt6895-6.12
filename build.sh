@@ -248,7 +248,6 @@ config() {
         -e 's|^CONFIG_KASAN=y|# CONFIG_KASAN is not set|' \
         -e 's|^CONFIG_KASAN_HW_TAGS=y|# CONFIG_KASAN_HW_TAGS is not set|' \
         -e 's|^CONFIG_MTK_ECCCI_DRIVER=m|# CONFIG_MTK_ECCCI_DRIVER is not set|' \
-        -e 's|^CONFIG_CMDLINE="\(.*\)"$|CONFIG_CMDLINE="\1 console=ttyGS0,115200"|' \
         "$OUT/.config"
     ( cd "$K" && make "${MAKE_CC[@]}" O="$OUT" ARCH=arm64 LLVM=1 olddefconfig > "$WORK/config2.log" 2>&1 )
     sed -i "s|^CONFIG_MODULE_SIG_KEY=.*|CONFIG_MODULE_SIG_KEY=\"$PEM\"|" "$OUT/.config"
