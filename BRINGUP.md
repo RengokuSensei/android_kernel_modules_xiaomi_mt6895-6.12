@@ -229,7 +229,7 @@ drivers/power/supply/mtk_pd_adapter.c    (pd_authentication success path, ~:568)
 - [ ] Touch fw (nt36672e fw file) placed in vendor partition corresponding path
 - [ ] xaga_global variant boot verification (if CN version TEE/svp has issues)
 - [ ] mtk-master-charger name kABI/module load order check (if modprobe has dependencies)
-- [ ] **Fingerprint Driver (goodix_cap)**: DTS has `goodix,goodix-fp` node (cust_mt6895_fingerprint.dtsi), 5.10 used drivers/input/fingerprint/goodix_cap/ (GF3626ZS9 TEE), 6.12 ported to standard Linux 6.12 SPI subsystem APIs
+- [x] **Fingerprint Driver (goodix_cap)**: Ported to standard Linux 6.12 SPI subsystem APIs (`gf3626zs9.c`)
 - [ ] **Sensor User Environment Merge**: Append 6 xaga* names in user environment `src-v4l2/BUILD.bazel` `config_cust_kernel_imgsensor` (steps see §6)
 - [ ] **lm3644 Registration Cleanup** (optional): `mgk_64.bzl:1361` registered lm3644 for mt6895, xaga uses KTD2687 instead, retaining is harmless and removable
 
