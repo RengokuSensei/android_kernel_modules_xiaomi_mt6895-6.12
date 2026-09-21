@@ -248,6 +248,10 @@ config() {
         -e 's|^CONFIG_KASAN=y|# CONFIG_KASAN is not set|' \
         -e 's|^CONFIG_KASAN_HW_TAGS=y|# CONFIG_KASAN_HW_TAGS is not set|' \
         -e 's|^CONFIG_MTK_ECCCI_DRIVER=m|# CONFIG_MTK_ECCCI_DRIVER is not set|' \
+        -e 's|^CONFIG_USB_G_SERIAL=.*|# CONFIG_USB_G_SERIAL is not set|' \
+        -e 's|^CONFIG_U_SERIAL_CONSOLE=.*|# CONFIG_U_SERIAL_CONSOLE is not set|' \
+        -e 's|^CONFIG_XAGA_KMSG2USB=.*|# CONFIG_XAGA_KMSG2USB is not set|' \
+        -e 's|^CONFIG_CPU_MITIGATIONS=.*|# CONFIG_CPU_MITIGATIONS is not set|' \
         "$OUT/.config"
     ( cd "$K" && make "${MAKE_CC[@]}" O="$OUT" ARCH=arm64 LLVM=1 olddefconfig > "$WORK/config2.log" 2>&1 )
     sed -i "s|^CONFIG_MODULE_SIG_KEY=.*|CONFIG_MODULE_SIG_KEY=\"$PEM\"|" "$OUT/.config"
@@ -347,7 +351,9 @@ dts() {
 pack_boot() {
     log "6/8 boot_new.img (magiskboot -n + 6.12 kernelsu)"
     local BD="$WORK/boot"; mkdir -p "$BD"; cd "$BD"
-    "$MAGISKBOOT" unpack -n -h "$OFFICIAL/boot.img" > "$WORK/boot_unpack.log" 2>&1
+    local BOOT_BASE="$OFFICIAL/boot.img"
+    [ -f "$OFFICIAL/boot_a.img" ] && BOOT_BASE="$OFFICIAL/boot_a.img"
+    "$MAGISKBOOT" unpack -n -h "$BOOT_BASE" > "$WORK/boot_unpack.log" 2>&1
     cp "$OUT/arch/arm64/boot/Image.gz" kernel
     # ramdisk is kept compressed by -n; decompress, swap kernelsu, recompress.
     # IMPORTANT: the official boot ramdisk is LEGACY lz4 (magic 02 21 4c 18)
@@ -359,7 +365,7 @@ pack_boot() {
         > "$WORK/boot_cpio.log" 2>&1
     lz4 -l -9 -f ramdisk.raw ramdisk_new.lz4 > /dev/null 2>&1
     cp ramdisk_new.lz4 ramdisk.cpio
-    "$MAGISKBOOT" repack -n "$OFFICIAL/boot.img" > "$WORK/boot_repack.log" 2>&1
+    "$MAGISKBOOT" repack -n "$BOOT_BASE" > "$WORK/boot_repack.log" 2>&1
     cp new-boot.img "$OUT_IMG/boot_new.img"
     ls -la "$OUT_IMG/boot_new.img"
 }
