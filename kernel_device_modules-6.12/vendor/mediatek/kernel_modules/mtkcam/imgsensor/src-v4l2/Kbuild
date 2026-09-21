@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
+# MediaTek Camera Imgsensor v4l2 sub-drivers
+
+obj-y += common/

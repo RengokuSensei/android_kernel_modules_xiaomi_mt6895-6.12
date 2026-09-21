@@ -1,0 +1,45 @@
+load("//build/bazel_mgk_rules:mgk_ddk_ko.bzl", "define_mgk_ddk_ko")
+load("//build/kernel/kleaf:kernel.bzl", "ddk_headers")
+
+package(
+    default_visibility = [
+        "//visibility:public",
+    ],
+)
+
+filegroup(
+    name = "srcs",
+    srcs = glob([
+        "**/Makefile",
+        "**/Kbuild",
+        "**/*.c",
+        "**/*.h",
+    ]),
+)
+
+filegroup(
+    name = "ddk_kconfigs",
+    srcs = glob([
+        "**/Kconfig",
+    ]),
+)
+
+# 6 xaga camera sensor drivers
+config_cust_kernel_imgsensor = "xagas5khm2_mipi_raw xagas5k4h7_mipi_raw xagaov16a1_mipi_raw xagas5kgw1_mipi_raw xagagc02m1_mipi_raw xagaov02b10_mipi_raw"
+
+config_subdrvs = config_cust_kernel_imgsensor.split(" ")
+
+common_subdrvs = glob([
+    "common/**/Makefile",
+])
+common_subdrvs_split = [
+    subdrv.split("/")[-2] for subdrv in common_subdrvs
+]
+intersect_comm_drvs = [item for item in common_subdrvs_split if item in config_subdrvs]
+
+subdrvs_c = [
+    "common/{}/*.c".format(p) if glob(["common/{}/**".format(p)]) else "" for p in intersect_comm_drvs
+]
+subdrvs_def_split = [
+    subdrv.upper() for subdrv in intersect_comm_drvs
+]

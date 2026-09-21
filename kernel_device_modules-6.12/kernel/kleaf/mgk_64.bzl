@@ -518,6 +518,7 @@ mgk_64_kleaf_device_modules_srcs = [
     "//kernel_device_modules-{}/drivers/misc/mediatek/cmdq/mailbox:srcs".format(kernel_version),
     "//kernel_device_modules-{}/drivers/misc/mediatek/cameraisp/fdvt/5.1:srcs".format(kernel_version),
     "//vendor/mediatek/kernel_modules/mtkcam/ccusys:srcs",
+    "//vendor/mediatek/kernel_modules/mtkcam/imgsensor/src-v4l2:srcs",
     "//kernel_device_modules-{}/drivers/misc/mediatek/mbraink:srcs".format(kernel_version),
     "//kernel_device_modules-{}/drivers/misc/mediatek/mbraink/modules/v6991:srcs".format(kernel_version),
     "//kernel_device_modules-{}/drivers/misc/mediatek/mbraink/modules/v6993:srcs".format(kernel_version),

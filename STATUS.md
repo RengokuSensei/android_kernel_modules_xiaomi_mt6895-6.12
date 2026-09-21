@@ -113,7 +113,7 @@ Reference baselines (workspace `xaga/baselines/`): Kernel reference baseline = `
 |---|---|---|---|
 | 1 | Fingerprint goodix_cap | ✅ Completed | Ported to standard Linux 6.12 SPI subsystem APIs (`drivers/input/fingerprint/goodix_cap/`), replacing legacy 5.10 `mtk_spi.h` |
 | 2 | vendor/mediatek full set not in this tree | Requires user environment | mtkcam etc. provided by user MTK manifest |
-| 3 | sensor merge | Requires user environment | In `src-v4l2/BUILD.bazel` `config_cust_kernel_imgsensor` append 6 xaga* names (make path automatically reads CONFIG_CUSTOM_KERNEL_IMGSENSOR, no change needed) |
+| 3 | sensor merge | ✅ Completed | 6 xaga camera sensor drivers registered in `src-v4l2/BUILD.bazel`, `Kbuild`, `Makefile`, and `mgk_64.bzl` (Closes #6) |
 | 4 | DTS Makefile 0 xaga registrations | Requires user environment | DTBO list registered in `kernel/build` mgk rules (cannot be completed in this tree); mgk_64.bzl:1361 registered lm3644 for mt6895 (xaga uses KTD2687, retaining is harmless and removable) |
 | 5 | Touch fw files | Requires device side | nt36672e fw file placed in vendor partition corresponding path |
 | 6 | Functional verification (Module load passed) | In progress | After 200 ko load success: enter system -> `/sys/class/power_supply/` should have mtk-master-charger/bms/battery -> 5V normal charging -> PD fast charge manager verification (sequence see BRINGUP.md §3.4; entering system requires blob support see §6.8) |
