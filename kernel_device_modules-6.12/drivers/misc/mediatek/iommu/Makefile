@@ -12,3 +12,6 @@ obj-$(CONFIG_MTK_IOMMU_MISC) += iommu-secure.o
 # self-aggregation: iommu_debug = iommu-debug.c + mtk-smmu-ela.c
 obj-$(CONFIG_MTK_IOMMU_MISC_DBG) += iommu_debug.o mtk-iommu-util.o
 iommu_debug-y := iommu-debug.o mtk-smmu-ela.o
+
+obj-$(CONFIG_MTK_ENABLE_GENIEZONE) += iommu_gz.o
+iommu_gz-y := iommu_gz_dummy.o iommu_gz_sec.o

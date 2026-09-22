@@ -17,7 +17,7 @@ ccflags-y += -Werror
 # Trusted Memory Subsystem Driver
 #==========================================================================
 # Ensure module is built only when option is enabled
-obj-$(CONFIG_MTK_TRUSTED_MEMORY_SUBSYSTEM) = trusted_mem.o
+obj-$(CONFIG_MTK_TRUSTED_MEMORY_SUBSYSTEM) += trusted_mem.o
 trusted_mem-y += dev_mgr.o
 trusted_mem-y += entry.o
 trusted_mem-y += region_mgr.o
