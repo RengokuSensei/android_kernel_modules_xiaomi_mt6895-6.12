@@ -12,7 +12,6 @@ include $(DEVICE_MODULES_PATH)/drivers/misc/mediatek/trusted_mem/Makefile.config
 
 # Force strictly compiler check
 ccflags-y += -Werror
-ccflags-y += -DCONFIG_ARM_FFA_SMCCC=1 -DCONFIG_ARM_FFA_TRANSPORT=1 -DMTK_ADAPTED=1 -DMTK_ADAPTED_WA=1
 
 #==========================================================================
 # Trusted Memory Subsystem Driver

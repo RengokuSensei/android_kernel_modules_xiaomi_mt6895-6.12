@@ -239,6 +239,7 @@ config() {
         -e 's|^CONFIG_MTK_PKVM_SMMU=m|# CONFIG_MTK_PKVM_SMMU is not set|' \
         -e 's|^CONFIG_MTK_PKVM_ISP=m|# CONFIG_MTK_PKVM_ISP is not set|' \
         -e 's|^CONFIG_MTK_PKVM_CMDQ=m|# CONFIG_MTK_PKVM_CMDQ is not set|' \
+        -e 's|^CONFIG_ARM_FFA_TRANSPORT=.*|# CONFIG_ARM_FFA_TRANSPORT is not set|' \
         -e 's|^CONFIG_ARM64_AMU_EXTN=y|# CONFIG_ARM64_AMU_EXTN is not set|' \
         -e 's|^CONFIG_ARM64_MTE=y|# CONFIG_ARM64_MTE is not set|' \
         -e 's|^CONFIG_ARM64_EPAN=y|# CONFIG_ARM64_EPAN is not set|' \
@@ -273,6 +274,10 @@ config() {
     done
     if grep -q '^CONFIG_KASAN=y' "$OUT/.config"; then
         echo "ERROR: CONFIG_KASAN still enabled after disable" >&2
+        exit 1
+    fi
+    if grep -q '^CONFIG_ARM_FFA_TRANSPORT=y' "$OUT/.config" || grep -q '^CONFIG_ARM_FFA_TRANSPORT=m' "$OUT/.config"; then
+        echo "ERROR: CONFIG_ARM_FFA_TRANSPORT still enabled after disable" >&2
         exit 1
     fi
 }
