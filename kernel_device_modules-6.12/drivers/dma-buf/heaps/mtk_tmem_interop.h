@@ -34,7 +34,11 @@
 
 #define BASE_SEC_HEAP_SZ (PAGE_SIZE << 3)
 
+#if IS_ENABLED(CONFIG_MTK_PKVM_TMEM)
 #define ENABLE_PKVM_PMM 1
+#else
+#define ENABLE_PKVM_PMM 0
+#endif
 
 /* TMEM common functions */
 
@@ -50,10 +54,9 @@ TMEM_PRIV int pmm_unassign_buffer_v2(struct ssheap_buf_info *ssheap,
 TMEM_PRIV int paddr_cmp(void *priv, const struct list_head *a,
 		const struct list_head *b);
 
-//TMEM_PRIV int pkvm_smmu_mapping(struct page *pmm_page, u8 pmm_attr,
-//		u32 tmp_count, int lock);
-
 #if (ENABLE_PKVM_PMM == 0)
+TMEM_PRIV int pkvm_smmu_mapping(struct page *pmm_page, u8 pmm_attr,
+		u32 tmp_count, int lock);
 TMEM_PRIV void pkvm_smmu_merge_ptable(void);
 #endif
 

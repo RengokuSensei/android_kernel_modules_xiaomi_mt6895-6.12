@@ -169,6 +169,7 @@ TMEM_PRIV int pkvm_smmu_mapping(struct page *pmm_page, u8 pmm_attr,
 }
 #endif
 
+#if (ENABLE_PKVM_PMM == 1)
 void pkvm_pmm_defragment(void)
 {
 	static int defragment_hcall;
@@ -178,6 +179,7 @@ void pkvm_pmm_defragment(void)
 	else
 		pkvm_el2_mod_call(defragment_hcall);
 }
+#endif
 
 #if (ENABLE_PKVM_PMM == 0)
 /* Merge SMMU normal VM page table into large page, when exit secure feature */
