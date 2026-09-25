@@ -279,6 +279,14 @@ config() {
         echo "ERROR: CONFIG_ARM_FFA_TRANSPORT still enabled after disable" >&2
         exit 1
     fi
+    if grep -q '^CONFIG_XAGA_KMSG2USB=y' "$OUT/.config"; then
+        echo "ERROR: CONFIG_XAGA_KMSG2USB still enabled after disable" >&2
+        exit 1
+    fi
+    if grep -q '^CONFIG_USB_G_SERIAL=y' "$OUT/.config" || grep -q '^CONFIG_USB_G_SERIAL=m' "$OUT/.config"; then
+        echo "ERROR: CONFIG_USB_G_SERIAL still enabled after disable" >&2
+        exit 1
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -481,6 +489,20 @@ for line in lines:
         add = [d for d in extra if d not in deps.split()]
         if add:
             line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
+    # trusted_mem.ko must depend on mcDrvModule.ko (MobiCore), never isee.ko (stock parity)
+    if line.startswith('trusted_mem.ko:'):
+        deps = [d for d in line.rstrip('\n').split(':', 1)[1].split() if d != 'isee.ko']
+        if 'mcDrvModule.ko' not in deps:
+            deps = ['mcDrvModule.ko'] + deps
+        line = 'trusted_mem.ko: ' + ' '.join(deps) + '\n'
+    # gz_tz_system.ko must not depend on isee.ko
+    if line.startswith('gz_tz_system.ko:'):
+        deps = [d for d in line.rstrip('\n').split(':', 1)[1].split() if d != 'isee.ko']
+        line = 'gz_tz_system.ko: ' + ' '.join(deps) + '\n'
+    # iommu_gz.ko must not depend on isee.ko
+    if line.startswith('iommu_gz.ko:'):
+        deps = [d for d in line.rstrip('\n').split(':', 1)[1].split() if d != 'isee.ko']
+        line = 'iommu_gz.ko: ' + ' '.join(deps) + '\n'
     out.append(line)
 with open(dep_path, 'w') as f:
     f.writelines(out)
@@ -509,6 +531,9 @@ while remaining:
         ready = sorted(remaining)
     order += ready
     remaining -= set(ready)
+
+# isee.ko must NOT be loaded in first-stage init (stock loads in second-stage)
+order = [m for m in order if m != 'isee']
 
 sys.stdout.write('\n'.join(order) + '\n')
 PYEOF
