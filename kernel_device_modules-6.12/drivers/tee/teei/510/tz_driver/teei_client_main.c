@@ -48,14 +48,8 @@
 #include <irq_register.h>
 #include <../teei_fp/fp_func.h>
 
-#if IS_ENABLED(CONFIG_MICROTRUST_TZ_DRIVER_MTK_BOOTPROF) && IS_ENABLED(CONFIG_MTPROF)
-
-#define TEEI_BOOT_FOOTPRINT(str) bootprof_log_boot(str)
-
-#else
-
+/* bootprof_log_boot is unexported in GKI 6.12; use IMSG_PRINTK to avoid undefined symbol */
 #define TEEI_BOOT_FOOTPRINT(str) IMSG_PRINTK("%s\n", str)
-#endif
 
 #define DECLARE_SEMA(name, init_value) \
 	struct semaphore name = __SEMAPHORE_INITIALIZER(name, init_value)

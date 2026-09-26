@@ -252,6 +252,7 @@ config() {
         -e 's|^CONFIG_U_SERIAL_CONSOLE=.*|# CONFIG_U_SERIAL_CONSOLE is not set|' \
         -e 's|^CONFIG_XAGA_KMSG2USB=.*|# CONFIG_XAGA_KMSG2USB is not set|' \
         -e 's|^CONFIG_CPU_MITIGATIONS=.*|# CONFIG_CPU_MITIGATIONS is not set|' \
+        -e 's|^CONFIG_MICROTRUST_TZ_DRIVER_MTK_BOOTPROF=.*|# CONFIG_MICROTRUST_TZ_DRIVER_MTK_BOOTPROF is not set|' \
         "$OUT/.config"
     ( cd "$K" && make "${MAKE_CC[@]}" O="$OUT" ARCH=arm64 LLVM=1 olddefconfig > "$WORK/config2.log" 2>&1 )
     sed -i "s|^CONFIG_MODULE_SIG_KEY=.*|CONFIG_MODULE_SIG_KEY=\"$PEM\"|" "$OUT/.config"
@@ -285,6 +286,10 @@ config() {
     fi
     if grep -q '^CONFIG_USB_G_SERIAL=y' "$OUT/.config" || grep -q '^CONFIG_USB_G_SERIAL=m' "$OUT/.config"; then
         echo "ERROR: CONFIG_USB_G_SERIAL still enabled after disable" >&2
+        exit 1
+    fi
+    if grep -q '^CONFIG_MICROTRUST_TZ_DRIVER_MTK_BOOTPROF=y' "$OUT/.config" || grep -q '^CONFIG_MICROTRUST_TZ_DRIVER_MTK_BOOTPROF=m' "$OUT/.config"; then
+        echo "ERROR: CONFIG_MICROTRUST_TZ_DRIVER_MTK_BOOTPROF still enabled after disable" >&2
         exit 1
     fi
 }
@@ -560,6 +565,13 @@ PYEOF
     # mediatek-drm -> dispsys_config probe waits on iommu/power-domain that are
     # not yet loaded -> no drm dev -> recovery graphics timeout (2026-08-12).
     cp modules.load modules.load.recovery
+    if [ -f "$VD/vendor_ramdisk/rd/lib/modules/isee.ko" ]; then
+        if llvm-nm -u "$VD/vendor_ramdisk/rd/lib/modules/isee.ko" 2>/dev/null | grep -q 'bootprof_log_boot' || \
+           nm -u "$VD/vendor_ramdisk/rd/lib/modules/isee.ko" 2>/dev/null | grep -q 'bootprof_log_boot'; then
+            echo "FATAL ERROR: bootprof_log_boot still undefined in isee.ko!" >&2
+            exit 1
+        fi
+    fi
     cd "$VD/vendor_ramdisk/rd"
     find . | cpio -o -H newc > "$VD/vr_new.cpio" 2>/dev/null || true
     # IMPORTANT: compress with lz4 -l (legacy, magic 02 21 4c 18) - the
