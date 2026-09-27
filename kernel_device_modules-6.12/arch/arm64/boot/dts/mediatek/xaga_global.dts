@@ -7,3 +7,13 @@
 
 #include "xaga-mt6895.dtsi"
 #include "cust/xaga.dtsi"
+
+&mt6363_vufs12 {
+	regulator-always-on;
+	regulator-boot-on;
+};
+
+&mt6363_vufs18 {
+	regulator-always-on;
+	regulator-boot-on;
+};

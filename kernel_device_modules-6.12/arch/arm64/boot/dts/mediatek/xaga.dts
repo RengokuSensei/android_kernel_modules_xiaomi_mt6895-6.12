@@ -9,3 +9,13 @@
 	svp-page-based-size = <0 0x19000000>;
 };
 #include "cust/xaga.dtsi"
+
+&mt6363_vufs12 {
+	regulator-always-on;
+	regulator-boot-on;
+};
+
+&mt6363_vufs18 {
+	regulator-always-on;
+	regulator-boot-on;
+};

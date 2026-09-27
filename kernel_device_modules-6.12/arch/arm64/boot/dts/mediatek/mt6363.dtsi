@@ -366,6 +366,8 @@
 				regulator-max-microvolt = <2100000>;
 				regulator-enable-ramp-delay = <680>;
 				regulator-allowed-modes = <0 2>;
+				regulator-always-on;
+				regulator-boot-on;
 				regulator-allow-set-load;
 			};
 			mt6363_vio18: vio18 {
@@ -431,6 +433,8 @@
 				regulator-max-microvolt = <1850000>;
 				regulator-enable-ramp-delay = <280>;
 				regulator-allowed-modes = <0 2>;
+				regulator-always-on;
+				regulator-boot-on;
 				regulator-allow-set-load;
 			};
 			mt6363_va12_1: va12-1 {
