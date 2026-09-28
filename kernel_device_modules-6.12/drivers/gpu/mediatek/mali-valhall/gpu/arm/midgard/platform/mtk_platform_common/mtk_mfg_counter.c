@@ -542,6 +542,7 @@ static int _mtk_mfg_update_counter(void)
 		_mtk_mfg_reset_counter(1);
 		for (i = 0; i < nr_hwc_blocks; i++) {
 			shader_block = 0;
+			(void)shader_block;
 			block_type = info.hwc_layout[i];
 			if (block_type == RESERVED_BLOCK || block[block_type] == 1)
 				continue;
@@ -633,6 +634,7 @@ static int mali_get_gpu_pmu_init(struct GPU_PMU *pmus, int pmu_size, int *ret_si
 			block[block_type] = 1;
 			name_offset = name_offset_table[block_type] * MALI_COUNTERS_PER_BLOCK;
 			data_offset = i * MALI_COUNTERS_PER_BLOCK;
+			(void)data_offset;
 			for (j = 0; j < MALI_COUNTERS_PER_BLOCK; j++) {
 				const char *name = hardware_counter_names[name_offset+j];
 				if (name[0] == '\0')
@@ -770,6 +772,7 @@ int gator_gpu_pmu_init(void)
 	}
 	cnt = block_type = 0;
 	nr_hwc_blocks = info.nr_hwc_blocks - info.nr_cores + 1;
+	(void)nr_hwc_blocks;
 	pr_debug("block num:%u, core:%u", info.nr_hwc_blocks, info.nr_cores);
 	for (i = 0; i < info.nr_hwc_blocks; i++) {
 		block_type = info.hwc_layout[i];

@@ -13,7 +13,7 @@
 
 export MTK_PLATFORM ?= mt6895
 
-ifneq ($(CONFIG_MTK_GPU_VERSION),"")
+ifneq ($(filter-out "" '',$(CONFIG_MTK_GPU_VERSION)),)
 MTK_GPU_VERSION = $(subst ",,$(CONFIG_MTK_GPU_VERSION))
 
 $(info [MTK GPU] MTK_GPU_VERSION = $(MTK_GPU_VERSION))
@@ -59,14 +59,16 @@ ifneq ($(CONFIG_MTK_GPU_SUPPORT),)
     obj-y += hal/
     obj-y += mali-valhall/
 
-ifneq ($(CONFIG_MTK_GPU_VERSION),"")
+ifneq ($(filter-out "" '',$(CONFIG_MTK_GPU_VERSION)),)
 # GPU R5P0
 ifeq ($(CONFIG_MTK_GPU_R5P0),y)
     obj-y += $(subst ",,$(CONFIG_MTK_PLATFORM))/
 else ifneq ($(word 1,$(MTK_GPU_VERSION)),)
     obj-y += gpu_$(word 1,$(MTK_GPU_VERSION))/
 else ifneq ($(CONFIG_MTK_PLATFORM),)
+ifneq ($(wildcard $(srctree)/$(src)/$(subst ",,$(CONFIG_MTK_PLATFORM))/Makefile),)
     obj-y += $(subst ",,$(CONFIG_MTK_PLATFORM))/
+endif
 endif
 endif
 
