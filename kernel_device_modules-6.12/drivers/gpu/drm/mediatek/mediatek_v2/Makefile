@@ -184,8 +184,6 @@ obj-$(CONFIG_DRM_MEDIATEK_HDMI) += mediatek-drm-hdmi.o
 
 #mediatek-drm-$(CONFIG_DRM_FBDEV_EMULATION) += mtk_drm_fbdev.o
 
-obj-$(CONFIG_DEVICE_MODULES_DRM_MEDIATEK) += mediatek-drm.o
-
 # xaga: platform module wiring (alps BUILD.bazel mediatek-drm; exports
 # mtkfb_set_backlight_level / mtk_dp_* / get_panel_dead_flag etc. for
 # leds-mtk-disp / leds-mtk-pwm / usb_dp_selector / panel-l16 / nvt36672c)
