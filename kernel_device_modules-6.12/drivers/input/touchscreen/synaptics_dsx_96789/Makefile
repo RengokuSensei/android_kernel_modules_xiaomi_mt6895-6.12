@@ -6,4 +6,3 @@ ccflags-$(CONFIG_DRM_MEDIATEK_V2) += -I$(DEVICE_MODULES_PATH)/drivers/gpu/drm/me
 obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_CORE_96789) += synaptics_touch_96789.o
 synaptics_touch_96789-y += synaptics_dsx_i2c.o
 synaptics_touch_96789-y += synaptics_dsx_core.o
-
