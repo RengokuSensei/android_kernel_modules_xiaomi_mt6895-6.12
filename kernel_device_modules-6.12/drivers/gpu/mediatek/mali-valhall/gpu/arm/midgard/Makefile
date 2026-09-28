@@ -205,10 +205,13 @@ else
 endif
 MALI_COVERAGE ?= 0
 
-CONFIG_MALI_PLATFORM_NAME ?= "devicetree"
+CONFIG_MALI_PLATFORM_NAME ?= "mt6895"
 
 # Kconfig passes in the name with quotes for in-tree builds - remove them.
 MALI_PLATFORM_DIR := $(shell echo $(CONFIG_MALI_PLATFORM_NAME))
+ifeq ($(MALI_PLATFORM_DIR),)
+MALI_PLATFORM_DIR := mt6895
+endif
 
 include $(KO_CODE_PATH)/platform/$(MALI_PLATFORM_DIR)/Kbuild
 

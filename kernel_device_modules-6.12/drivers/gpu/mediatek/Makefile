@@ -48,7 +48,6 @@ subdir-ccflags-y += -DCONFIG_GPU_MT6833
 else ifeq ($(MTK_PLATFORM),mt6789)
 subdir-ccflags-y += -DCONFIG_GPU_MT6789
 endif
-endif
 
 ifneq ($(CONFIG_MTK_GPU_SUPPORT),)
     obj-y += ged/
