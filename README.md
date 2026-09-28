@@ -1,10 +1,10 @@
 # kernel_xiaomi_mt6895-6.12
 
-> **Porting Status Overview:** See [STATUS.md](STATUS.md) (Baseline commit `30c80ea`, 2026-08-13, on branch `main`).
-> **Real Device Milestone (2026-08-13):** After resolving the root cause in the display pipeline (`PWM0/SPR0` compatible matching), **the compiled build boots into recovery with a fully working display** (minor screen tearing/glitch during the early LK → Kernel transition before recovery starts; non-blocking).
-> **Booting Full Android System:** Requires proprietary vendor blobs. This repository contains only open-source GPL kernel and module source code. Running complete Android requires Xiaomi/MediaTek proprietary blobs (TEE/GZ/MCUPM/SSPM firmware, vendor partition HAL binaries, etc.). See `STATUS.md` §6.7/§6.8/§10.
-> **2026-08-15 Checkpoint:** After subsequent black screen regressions in recovery (LK never initialized DSI), 8 rounds of deep debugging were conducted, followed by roll-back to the clean 16:33 build checkpoint. See `STATUS.md` §10 for details.
-> **Fingerprint Update (2026-09-18):** Goodix GF3626ZS9 capacitive fingerprint driver has been successfully ported to standard Linux 6.12 SPI subsystem APIs via PR #4.
+> **Porting Status Overview:** See [STATUS.md](STATUS.md).
+> **Real Device Milestone (2026-09-28):** **Full Linux 6.12 GKI kernel boots into complete Android 16 userspace on POCO X4 GT / Redmi K50i (`xaga` / `xagain`, Dimensity 8100)**! Verified on physical hardware: `zygote64`, `system_server`, `DisplayManagerService`, `hwcomposer`, and `FBE` userdata decryption are fully active.
+> **Mali Valhall GPU Driver Port:** Arm Mali Valhall CSF driver suite (`mali_kbase_mt6895.ko`, `mali_prot_alloc.ko`, `mali_mgm.ko`) ported from MT6895 stock baseline to Linux 6.12 GKI kernel APIs (`vm_flags_set/clear`, `dma_resv` locking, Kbuild out-of-tree build rules) providing `/dev/mali0` for Android 16 SurfaceFlinger hardware acceleration.
+> **Microtrust Beanpod TEE 520:** Ported to Linux 6.12 GKI, enabling hardware KeyMint and seamless `/data` encryption/decryption at boot.
+> **Fingerprint Update:** Goodix GF3626ZS9 capacitive fingerprint driver ported to standard Linux 6.12 SPI subsystem APIs via PR #4.
 
 ---
 
@@ -95,6 +95,8 @@ All drivers are registered in Kleaf's `kernel/kleaf/mgk_64.bzl` and `BUILD.bazel
 | **MTK Pump Express** | `pep`/`pep20`/`pep40`/`pep45`/`pep50`/`pep50p` fast charging protocols |
 | **MTK Platform Modules (123 ko)** | Complete platform module suite synchronized from ALPS tree |
 | **MTK DRM Subsystem (60+ modules)** | `mediatek_v2` (80+ files), `mml`, `gpufreq v2`, `slbc`, `system_heap`, `mmdvfs`, `vmm` (0 undefined symbols) |
+| **Microtrust Beanpod TEE 520 (`isee`)** | Beanpod KeyMint & Userdata Decryption driver ported to Linux 6.12 GKI |
+| **Mali Valhall GPU (`mali_kbase_mt6895`, `mali_prot_alloc`, `mali_mgm`)** | Dimensity 8100 Mali-G610 MC6 CSF driver ported to Linux 6.12 GKI with MT6895 DVFS, power management, and Android 16 HAL compatibility (`r32p1-01eac0`) |
 
 ---
 
@@ -105,12 +107,15 @@ All drivers are registered in Kleaf's `kernel/kleaf/mgk_64.bzl` and `BUILD.bazel
 | Item | Details |
 |------|---------|
 | **200+ Kernel Modules** | All OOT modules compile clean (`-Werror`), 0 undefined symbols |
-| **CI/CD Pipeline** | GitHub Actions: automated cloud compilation on every push ([Build #11 GREEN ✅](../../actions)) |
-| **Full Kernel Packaging** | CI supports full `Image.gz` + flashable `boot.img`/`vendor_boot.img`/`dtbo.img` packaging (trigger via `workflow_dispatch`) |
+| **CI/CD Pipeline** | GitHub Actions: automated cloud compilation on every push |
+| **Full Kernel Packaging** | CI supports full `Image.gz` + flashable `boot.img`/`vendor_boot.img`/`dtbo.img` packaging |
 | **Fingerprint Driver** | Goodix GF3626ZS9 ported to Linux 6.12 standard SPI APIs (PR #4, merged) |
 | **Display DRM Handoff** | Early boot display pipeline fix — MTCMOS power-on ordering + DSI clock preparation |
 | **Vendor Firmware Staging** | `vendor_firmware/` directory structure + `build.sh` auto-staging for `gz`/`tee`/`sspm`/`mcupm`/`pi_img` |
-| **Recovery Boot** | Verified on real hardware: boots into recovery with working display (2026-08-13) |
+| **Recovery Boot** | Verified on real hardware: boots into recovery with working display |
+| **UFS Power Stability** | `mt6363_vufs12` & `mt6363_vufs18` configured `regulator-always-on`, eliminating all I/O errors |
+| **Full Android 16 Userspace Boot** | Verified on physical device: boots Android 16, decrypts FBE `/data`, runs `zygote64`, `system_server`, `DisplayManagerService`, and `hwcomposer` |
+| **Mali Valhall Driver Port** | `mali_kbase_mt6895.ko`, `mali_prot_alloc.ko`, `mali_mgm.ko` ported to Linux 6.12 GKI with MT6895 platform wiring |
 | **Android 16 VABC Ramdisk** | Upgraded base boot asset from Android 12 GSI to native Android 16 with `snapuserd` (Closes #7) |
 | **Camera Sensor Build Rules** | 6 xaga camera sensor drivers registered in Kbuild & Bazel build systems (Closes #6) |
 | **Documentation** | Fully translated to English (`STATUS.md`, `BRINGUP.md`, `xaga-drm-restore.md`, `xaga-log-capture.md`) |
@@ -119,11 +124,10 @@ All drivers are registered in Kleaf's `kernel/kleaf/mgk_64.bzl` and `BUILD.bazel
 
 | # | Gap | Severity | Notes |
 |---|-----|----------|-------|
-| 1 | **Fingerprint TEE daemon** | Non-blocking | `goodix_cap` kernel driver is ported; needs matching TEE user-space daemon + real hardware testing |
-| 2 | **Touchscreen Firmware** | Needs device | `nt36672c` firmware binary must be placed in `/vendor/firmware` partition |
-| 3 | **DTS Makefile Registration** | Needs user env | DTBO list must be registered in `kernel/build` mgk rules (not possible in this tree alone) |
-| 4 | **Full Android Boot (System Mount)** | Staged for hardware test | Recovery boots cleanly. Native Android 16 ramdisk with `snapuserd` assembled; ready for hardware testing on Android 16 userspace |
-| 5 | **DSI Black Screen (LK not initializing)** | Under investigation | When LK skips DSI init, kernel must replicate full LK display pipeline — resolved on Fenrir LK |
+| 1 | **Mali GPU User-Space Binding** | In progress | Verified kernel side; testing SurfaceFlinger EGL initial handshake with `/dev/mali0` |
+| 2 | **Fingerprint TEE daemon** | Non-blocking | `goodix_cap` kernel driver is ported; needs matching TEE user-space daemon + real hardware testing |
+| 3 | **Touchscreen Firmware** | Needs device | `nt36672c` firmware binary must be placed in `/vendor/firmware` partition |
+| 4 | **DTS Makefile Registration** | Needs user env | DTBO list must be registered in `kernel/build` mgk rules (not possible in this tree alone) |
 
 ### 🗺️ Next Steps
 

@@ -501,6 +501,13 @@ for line in lines:
         add = [d for d in extra if d not in deps.split()]
         if add:
             line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
+    # mali_kbase_mt6895.ko must load after memory allocators (mali_prot_alloc, mali_mgm)
+    if line.startswith('mali_kbase_mt6895.ko:'):
+        deps = line.rstrip('\n').split(':', 1)[1]
+        extra = ['mali_prot_alloc.ko', 'mali_mgm.ko']
+        add = [d for d in extra if d not in deps.split()]
+        if add:
+            line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
     out.append(line)
 with open(dep_path, 'w') as f:
     f.writelines(out)

@@ -309,3 +309,6 @@ config MTK_GPU_FWLOG_DEBUG
 	  and increase buffer size.
 	  This is a config to enable debug feature.
 
+source "$(KCONFIG_EXT_PREFIX)drivers/gpu/mediatek/mali-valhall/base/arm/Kconfig"
+source "$(KCONFIG_EXT_PREFIX)drivers/gpu/mediatek/mali-valhall/gpu/arm/Kconfig"
+
