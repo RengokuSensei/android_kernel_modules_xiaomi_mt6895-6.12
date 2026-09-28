@@ -5382,12 +5382,20 @@ void kbase_sysfs_term(struct kbase_device *kbdev)
 	put_device(kbdev->dev);
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+static void kbase_platform_device_remove(struct platform_device *pdev)
+#else
 static int kbase_platform_device_remove(struct platform_device *pdev)
+#endif
 {
 	struct kbase_device *kbdev = to_kbase_device(&pdev->dev);
 
 	if (!kbdev)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+		return;
+#else
 		return -ENODEV;
+#endif
 
 #if IS_ENABLED(CONFIG_PROC_FS)
 	mtk_common_procfs_exit();
@@ -5396,7 +5404,9 @@ static int kbase_platform_device_remove(struct platform_device *pdev)
 	dev_set_drvdata(kbdev->dev, NULL);
 	kbase_device_free(kbdev);
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 	return 0;
+#endif
 }
 
 void kbase_backend_devfreq_term(struct kbase_device *kbdev)

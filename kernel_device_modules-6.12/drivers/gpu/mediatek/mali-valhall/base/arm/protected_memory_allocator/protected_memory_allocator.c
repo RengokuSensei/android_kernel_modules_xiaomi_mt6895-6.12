@@ -303,7 +303,7 @@ static struct protected_memory_allocation *simple_pma_alloc_page(
 #endif /* MTK_PMA_DEBUG */
 
 	if (epma_dev->num_free_pages < num_pages_to_alloc) {
-		dev_err(epma_dev->dev, "not enough free pages %u / %u\n",
+		dev_err(epma_dev->dev, "not enough free pages %zu / %zu\n",
                         num_pages_to_alloc, epma_dev->num_free_pages);
 		devm_kfree(epma_dev->dev, pma);
 #if MTK_PMA_DEBUG
@@ -679,7 +679,7 @@ static int mtk_protected_memory_allocator_probe(struct platform_device *pdev)
 	rmem_size = rmem_size >> PAGE_SHIFT;
 
 	dev_info(&pdev->dev,
-		"addr(%llx), size: %u pages\n", rmem_base, rmem_size);
+		"addr(%llx), size: %zu pages\n", rmem_base, rmem_size);
 
 	devm_iounmap(&pdev->dev, gpueb_base);
 
@@ -739,7 +739,11 @@ static int mtk_protected_memory_allocator_probe(struct platform_device *pdev)
 	return 0;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+static void protected_memory_allocator_remove(struct platform_device *pdev)
+#else
 static int protected_memory_allocator_remove(struct platform_device *pdev)
+#endif
 {
 	struct protected_memory_allocator_device *pma_dev =
 		platform_get_drvdata(pdev);
@@ -747,7 +751,11 @@ static int protected_memory_allocator_remove(struct platform_device *pdev)
 	struct device *dev;
 
 	if (!pma_dev)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+		return;
+#else
 		return -EINVAL;
+#endif
 
 	epma_dev = container_of(pma_dev, struct simple_pma_device, pma_dev);
 	dev = epma_dev->dev;
@@ -764,7 +772,9 @@ static int protected_memory_allocator_remove(struct platform_device *pdev)
 	dev_info(&pdev->dev,
 		"Protected memory allocator removed successfully\n");
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 	return 0;
+#endif
 }
 
 static const struct of_device_id protected_memory_allocator_dt_ids[] = {

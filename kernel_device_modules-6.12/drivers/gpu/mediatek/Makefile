@@ -11,6 +11,8 @@
 # GNU General Public License for more details.
 #
 
+export MTK_PLATFORM ?= mt6895
+
 ifneq ($(CONFIG_MTK_GPU_VERSION),"")
 MTK_GPU_VERSION = $(subst ",,$(CONFIG_MTK_GPU_VERSION))
 
@@ -18,8 +20,9 @@ $(info [MTK GPU] MTK_GPU_VERSION = $(MTK_GPU_VERSION))
 
 ifneq ($(CONFIG_MTK_PLATFORM),)
 export MTK_PLATFORM = $(subst ",,$(CONFIG_MTK_PLATFORM))
-else
+else ifneq ($(word 4,$(MTK_GPU_VERSION)),)
 export MTK_PLATFORM = $(word 4,$(MTK_GPU_VERSION))
+endif
 endif
 
 ifeq ($(MTK_PLATFORM),mt6873)

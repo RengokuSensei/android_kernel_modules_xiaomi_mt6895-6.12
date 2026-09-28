@@ -316,6 +316,7 @@ modules() {
     # progress: count .ko as they are produced; poll in background on a TTY
     if [ -t 1 ]; then
         make -C "$K" O="$OUT" ARCH=arm64 LLVM=1 KCONFIG_EXT_PREFIX="$M/" M="$M" \
+            MTK_PLATFORM=mt6895 CONFIG_MTK_PLATFORM=mt6895 \
             DEVICE_MODULES_PATH="$M" DEVCIE_MODULES_INCLUDE="$INC" \
             KBUILD_MODPOST_WARN=1 -j"$JOBS" modules > "$WORK/ootmod.log" 2>&1 &
         local MPID=$!
@@ -331,6 +332,7 @@ modules() {
         progress_clear
     else
         make -C "$K" O="$OUT" ARCH=arm64 LLVM=1 KCONFIG_EXT_PREFIX="$M/" M="$M" \
+            MTK_PLATFORM=mt6895 CONFIG_MTK_PLATFORM=mt6895 \
             DEVICE_MODULES_PATH="$M" DEVCIE_MODULES_INCLUDE="$INC" \
             KBUILD_MODPOST_WARN=1 -j"$JOBS" modules > "$WORK/ootmod.log" 2>&1 || { echo "=== OOT MODULES ERROR LOG ==="; cat "$WORK/ootmod.log"; exit 1; }
     fi
