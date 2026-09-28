@@ -24,6 +24,23 @@
 #include <mtk_gpu_power_sspm_ipi.h>
 #endif
 
+#ifndef POWER_ON
+#define POWER_ON GPU_PWR_ON
+#endif
+#ifndef POWER_OFF
+#define POWER_OFF GPU_PWR_OFF
+#endif
+
+static inline void gpufreq_set_timestamp(void)
+{
+	/* Valhall CSF on MT6895 handles timestamps via internal hardware CSF timers */
+}
+
+static inline void gpufreq_check_bus_idle(void)
+{
+	/* Bus idle checking on MT6895 is handled by MTCMOS/SPM inside gpufreq_power_control */
+}
+
 DEFINE_MUTEX(g_mfg_lock);
 static int g_cur_opp_idx;
 
@@ -86,7 +103,7 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 
 	/* on,off/ SWCG(BG3D)/ MTCMOS/ BUCK */
 #if defined(CONFIG_MTK_GPUFREQ_V2)
-	if (gpufreq_power_control(POWER_ON) < 0) {
+	if (gpufreq_power_control(GPU_PWR_ON) < 0) {
 		dev_info(kbdev->dev, "GPU PM Callback - Power On Failed");
 		return 1;
 	}
@@ -159,7 +176,7 @@ static void pm_callback_power_off_nolock(struct kbase_device *kbdev)
 
 	/* on,off/ SWCG(BG3D)/ MTCMOS/ BUCK */
 #if defined(CONFIG_MTK_GPUFREQ_V2)
-	if (gpufreq_power_control(POWER_OFF) < 0) {
+	if (gpufreq_power_control(GPU_PWR_OFF) < 0) {
 		dev_info(kbdev->dev, "GPU PM Callback - Power Off Failed");
 		return;
 	}
@@ -244,7 +261,7 @@ int mtk_platform_device_init(struct kbase_device *kbdev)
 {
 
 	if (!kbdev) {
-		dev_info(kbdev->dev, "@%s: kbdev is NULL", __func__);
+		pr_err("@%s: kbdev is NULL\n", __func__);
 		return -1;
 	}
 
