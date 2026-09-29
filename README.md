@@ -100,8 +100,8 @@ All drivers are registered in Kleaf's `kernel/kleaf/mgk_64.bzl` and `BUILD.bazel
 
 ### Mali Valhall CSF GPU Driver Architecture (Linux 6.12 GKI)
 - **CSF Backend:** Direct Command Stream Frontend (`MALI_USE_CSF=1`) hardware scheduler support for Valhall architecture (Mali-G610 MC6 / Dimensity 8100).
-- **VMA & Memory Subsystem:** Converted memory allocations to Linux 6.12 `vm_flags_set()` and `vm_flags_clear()`, with `dma_resv_lock()` wrapped around DMA-BUF attachments.
-- **Kernel MM & Shrinker Modernization:** Adapted user page pinning (`pin_user_pages_remote`, `pin_user_pages`), eliminated removed `__GFP_ATOMIC` flag references, handled per-process RSS tracking for 6.2+ `percpu_counter rss_stat`, safely guarded removed `register_shrinker()` APIs, and provided `strlcpy` compatibility helper for Linux 6.8+ GKI.
+- **VMA & Memory Subsystem:** Converted memory allocations to Linux 6.12 `vm_flags_set()` and `vm_flags_clear()`, with `dma_resv_lock()` wrapped around DMA-BUF attachments. Migrated VMA unmapped area lookups in `thirdparty/mali_kbase_mmap.c` to native `current->mm->get_unmapped_area()` under Linux 6.1+ Maple Tree (`mm_mt`).
+- **Kernel MM & Driver Core Modernization:** Adapted user page pinning (`pin_user_pages_remote`, `pin_user_pages`), eliminated removed `__GFP_ATOMIC` flag references, handled per-process RSS tracking for 6.2+ `percpu_counter rss_stat`, safely guarded removed `register_shrinker()` APIs, hardened `kthread_create()` against format-security warnings, updated `dev_pm_opp_set_regulators()` to NULL-terminated arrays with token tracking, adapted `dma_set_max_seg_size()` for Linux 6.6+ `void` return semantics, and provided `strlcpy` compatibility helper for Linux 6.8+ GKI.
 - **Power Management & DVFS:** Linked with MediaTek `gpufreq_v2` using `GPU_PWR_ON` and `GPU_PWR_OFF` state transitions, asynchronous power callbacks, and MTCMOS/SPM integration.
 - **Allocation & Dependency Order:** Automated `modules.dep` sequencing ensuring `mali_prot_alloc.ko`, `mali_mgm.ko`, `mtk_gpufreq_wrapper.ko`, `mtk_gpufreq_mt6895.ko`, `gpu_bm.ko`, and `ged.ko` initialize before `mali_kbase_mt6895.ko` to create `/dev/mali0`.
 

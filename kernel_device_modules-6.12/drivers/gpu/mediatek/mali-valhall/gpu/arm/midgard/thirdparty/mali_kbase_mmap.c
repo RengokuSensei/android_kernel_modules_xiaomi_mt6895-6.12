@@ -9,6 +9,7 @@
  * Boston, MA  02110-1301, USA.
  */
 
+#include <linux/version.h>
 #include "linux/mman.h"
 #include <mali_kbase.h>
 
@@ -19,6 +20,7 @@
  */
 
 
+#if (KERNEL_VERSION(6, 1, 0) > LINUX_VERSION_CODE)
 /**
  * align_and_check() - Align the specified pointer to the provided alignment and
  *                     check that it is still in range.
@@ -228,6 +230,7 @@ check_current:
 
 	return -ENOMEM;
 }
+#endif
 
 
 /* This function is based on Linux kernel's arch_get_unmapped_area, but
@@ -238,6 +241,10 @@ unsigned long kbase_context_get_unmapped_area(struct kbase_context *const kctx,
 		const unsigned long addr, const unsigned long len,
 		const unsigned long pgoff, const unsigned long flags)
 {
+#if (KERNEL_VERSION(6, 1, 0) <= LINUX_VERSION_CODE)
+	return current->mm->get_unmapped_area(
+		kctx->filp, addr, len, pgoff, flags);
+#else
 	struct mm_struct *mm = current->mm;
 	struct vm_unmapped_area_info info;
 	unsigned long align_offset = 0;
@@ -368,4 +375,5 @@ unsigned long kbase_context_get_unmapped_area(struct kbase_context *const kctx,
 	}
 
 	return ret;
+#endif
 }
