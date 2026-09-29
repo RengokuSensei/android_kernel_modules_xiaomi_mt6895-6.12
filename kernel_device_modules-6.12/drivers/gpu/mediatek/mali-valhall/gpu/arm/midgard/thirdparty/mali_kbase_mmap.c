@@ -233,6 +233,19 @@ check_current:
 #endif
 
 
+#include <linux/sched/mm.h>
+
+static inline unsigned long kbase_get_unmapped_area(struct mm_struct *mm,
+		struct file *filp, unsigned long addr, unsigned long len,
+		unsigned long pgoff, unsigned long flags)
+{
+#if (KERNEL_VERSION(6, 11, 0) <= LINUX_VERSION_CODE)
+	return mm_get_unmapped_area(mm, filp, addr, len, pgoff, flags);
+#else
+	return mm->get_unmapped_area(filp, addr, len, pgoff, flags);
+#endif
+}
+
 /* This function is based on Linux kernel's arch_get_unmapped_area, but
  * simplified slightly. Modifications come from the fact that some values
  * about the memory area are known in advance.
@@ -242,7 +255,7 @@ unsigned long kbase_context_get_unmapped_area(struct kbase_context *const kctx,
 		const unsigned long pgoff, const unsigned long flags)
 {
 #if (KERNEL_VERSION(6, 1, 0) <= LINUX_VERSION_CODE)
-	return current->mm->get_unmapped_area(
+	return kbase_get_unmapped_area(current->mm,
 		kctx->filp, addr, len, pgoff, flags);
 #else
 	struct mm_struct *mm = current->mm;
@@ -349,7 +362,7 @@ unsigned long kbase_context_get_unmapped_area(struct kbase_context *const kctx,
 			kbase_gpu_vm_unlock(kctx);
 #ifndef CONFIG_64BIT
 	} else {
-		return current->mm->get_unmapped_area(
+		return kbase_get_unmapped_area(current->mm,
 			kctx->filp, addr, len, pgoff, flags);
 #endif
 	}

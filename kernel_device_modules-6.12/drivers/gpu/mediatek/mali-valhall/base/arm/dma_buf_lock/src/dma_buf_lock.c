@@ -812,8 +812,11 @@ static int __init dma_buf_lock_init(void)
 
 		err = cdev_add(&dma_buf_lock_cdev, dma_buf_lock_dev, 1);
 
-		if (err == 0) {
+#if (KERNEL_VERSION(6, 4, 0) <= LINUX_VERSION_CODE)
+			dma_buf_lock_class = class_create(dma_buf_lock_dev_name);
+#else
 			dma_buf_lock_class = class_create(THIS_MODULE, dma_buf_lock_dev_name);
+#endif
 			if (IS_ERR(dma_buf_lock_class))
 				err = PTR_ERR(dma_buf_lock_class);
 			else
