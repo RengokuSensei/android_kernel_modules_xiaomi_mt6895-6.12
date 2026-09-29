@@ -3161,10 +3161,12 @@ int kbase_pm_apply_pmode_entry_wa(struct kbase_device *kbdev)
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
 
 	/* Can switch to ARM backup PDCA here */
+#if IS_ENABLED(CONFIG_MTK_GPUFREQ_V2)
 	/* 2. fake pwr on mfg2~18 */
-	gpufreq_fake_spm_mtcmos_control(1);
+	gpufreq_fake_mtcmos_control(GPU_PWR_ON);
 	/* 3. disable pdcv2 */
-	gpufreq_pdc_control(0);
+	gpufreq_pdca_config(GPU_PWR_OFF);
+#endif
 
 	kbase_pm_unlock(kbdev);
 
@@ -3180,8 +3182,10 @@ void kbase_pm_apply_pmode_exit_wa(struct kbase_device *kbdev)
 	WARN_ON(!kbdev->pm.backend.gpu_powered);
 
 	/* Can switch back to MTK PDCA here */
+#if IS_ENABLED(CONFIG_MTK_GPUFREQ_V2)
 	/* 1. enable pdcv2 */
-	gpufreq_pdc_control(1);
+	gpufreq_pdca_config(GPU_PWR_ON);
+#endif
 	/* 2. enable dcs */
 	dcs_enable(1);
 
