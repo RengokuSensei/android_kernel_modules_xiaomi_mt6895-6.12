@@ -1024,7 +1024,11 @@ struct kbase_device {
 	struct regulator *regulators[BASE_MAX_NR_CLOCKS_REGULATORS];
 	unsigned int nr_regulators;
 #if (KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE)
+#if (KERNEL_VERSION(5, 16, 0) <= LINUX_VERSION_CODE)
+	int opp_token;
+#else
 	struct opp_table *opp_table;
+#endif
 #endif /* (KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE */
 #endif /* CONFIG_REGULATOR */
 	char devname[DEVNAME_SIZE];

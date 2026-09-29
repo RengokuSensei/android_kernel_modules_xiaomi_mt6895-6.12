@@ -259,7 +259,7 @@ struct task_struct *kbase_create_realtime_thread(struct kbase_device *kbdev,
 		.sched_priority = KBASE_RT_THREAD_PRIO,
 	};
 
-	struct task_struct *ret = kthread_create(kthread_worker_fn, data, namefmt);
+	struct task_struct *ret = kthread_create(kthread_worker_fn, data, "%s", namefmt);
 
 	if (!IS_ERR(ret)) {
 		for (i = KBASE_RT_THREAD_CPUMASK_MIN; i <= KBASE_RT_THREAD_CPUMASK_MAX ; i++)
@@ -783,7 +783,9 @@ static int kbase_open(struct inode *inode, struct file *filp)
 	}
 
 	filp->private_data = kfile;
+#if defined(FMODE_UNSIGNED_OFFSET)
 	filp->f_mode |= FMODE_UNSIGNED_OFFSET;
+#endif
 
 	return 0;
 
@@ -4631,14 +4633,23 @@ int power_control_init(struct kbase_device *kbdev)
 	int err = 0;
 	unsigned int i;
 #if defined(CONFIG_REGULATOR)
-	static const char *regulator_names[] = {
+	static const char * const regulator_names[] = {
 		"mali", "shadercores"
 	};
 	BUILD_BUG_ON(ARRAY_SIZE(regulator_names) < BASE_MAX_NR_CLOCKS_REGULATORS);
+#if (KERNEL_VERSION(5, 16, 0) <= LINUX_VERSION_CODE)
+	static const char * const opp_regulator_names[] = {
+		"mali", "shadercores", NULL
+	};
+#endif
 #endif /* CONFIG_REGULATOR */
 
 	if (!kbdev)
 		return -ENODEV;
+
+#if (KERNEL_VERSION(5, 16, 0) <= LINUX_VERSION_CODE) && defined(CONFIG_REGULATOR)
+	kbdev->opp_token = -1;
+#endif
 
 	pdev = to_platform_device(kbdev->dev);
 
@@ -4716,8 +4727,13 @@ int power_control_init(struct kbase_device *kbdev)
 #if ((KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE) && \
 	defined(CONFIG_REGULATOR))
 	if (kbdev->nr_regulators > 0) {
+#if (KERNEL_VERSION(5, 16, 0) <= LINUX_VERSION_CODE)
+		kbdev->opp_token = dev_pm_opp_set_regulators(kbdev->dev,
+			opp_regulator_names);
+#else
 		kbdev->opp_table = dev_pm_opp_set_regulators(kbdev->dev,
 			regulator_names, BASE_MAX_NR_CLOCKS_REGULATORS);
+#endif
 	}
 #endif /* (KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE */
 	err = dev_pm_opp_of_add_table(kbdev->dev);
@@ -4742,8 +4758,15 @@ void power_control_term(struct kbase_device *kbdev)
 	dev_pm_opp_of_remove_table(kbdev->dev);
 #if ((KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE) && \
 	defined(CONFIG_REGULATOR))
+#if (KERNEL_VERSION(5, 16, 0) <= LINUX_VERSION_CODE)
+	if (kbdev->opp_token >= 0) {
+		dev_pm_opp_put_regulators(kbdev->opp_token);
+		kbdev->opp_token = -1;
+	}
+#else
 	if (!IS_ERR_OR_NULL(kbdev->opp_table))
 		dev_pm_opp_put_regulators(kbdev->opp_table);
+#endif
 #endif /* (KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE */
 #endif /* CONFIG_PM_OPP */
 
