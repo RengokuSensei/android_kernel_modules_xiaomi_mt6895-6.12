@@ -360,6 +360,7 @@ void kbase_mem_pool_set_max_size(struct kbase_mem_pool *pool, size_t max_size)
 }
 KBASE_EXPORT_TEST_API(kbase_mem_pool_set_max_size);
 
+#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
 static unsigned long kbase_mem_pool_reclaim_count_objects(struct shrinker *s,
 		struct shrink_control *sc)
 {
@@ -403,6 +404,7 @@ static unsigned long kbase_mem_pool_reclaim_scan_objects(struct shrinker *s,
 
 	return freed;
 }
+#endif
 
 int kbase_mem_pool_init(struct kbase_mem_pool *pool,
 		const struct kbase_mem_pool_config *config,
@@ -427,6 +429,7 @@ int kbase_mem_pool_init(struct kbase_mem_pool *pool,
 	spin_lock_init(&pool->pool_lock);
 	INIT_LIST_HEAD(&pool->page_list);
 
+#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
 	pool->reclaim.count_objects = kbase_mem_pool_reclaim_count_objects;
 	pool->reclaim.scan_objects = kbase_mem_pool_reclaim_scan_objects;
 	pool->reclaim.seeks = DEFAULT_SEEKS;
@@ -435,6 +438,7 @@ int kbase_mem_pool_init(struct kbase_mem_pool *pool,
 	 */
 	pool->reclaim.batch = 0;
 	register_shrinker(&pool->reclaim);
+#endif
 
 	pool_dbg(pool, "initialized\n");
 
@@ -459,7 +463,9 @@ void kbase_mem_pool_term(struct kbase_mem_pool *pool)
 
 	pool_dbg(pool, "terminate()\n");
 
+#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
 	unregister_shrinker(&pool->reclaim);
+#endif
 
 	kbase_mem_pool_lock(pool);
 	pool->max_size = 0;

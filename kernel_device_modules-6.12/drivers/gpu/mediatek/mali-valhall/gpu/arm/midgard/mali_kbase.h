@@ -52,6 +52,23 @@
 
 #include <mali_kbase_linux.h>
 
+#if (KERNEL_VERSION(6, 8, 0) <= LINUX_VERSION_CODE)
+#ifndef strlcpy
+static inline size_t strlcpy(char *dest, const char *src, size_t size)
+{
+	size_t ret = strlen(src);
+
+	if (size) {
+		size_t len = (ret >= size) ? size - 1 : ret;
+
+		memcpy(dest, src, len);
+		dest[len] = '\0';
+	}
+	return ret;
+}
+#endif
+#endif
+
 /*
  * Include mali_kbase_defs.h first as this provides types needed by other local
  * header files.

@@ -506,7 +506,7 @@ for line in lines:
     # mali_kbase_mt6895.ko must load after memory allocators and gpufreq modules
     if line.startswith('mali_kbase_mt6895.ko:'):
         deps = line.rstrip('\n').split(':', 1)[1]
-        extra = ['mali_prot_alloc.ko', 'mali_mgm.ko', 'mtk_gpufreq_wrapper.ko', 'mtk_gpufreq_mt6895.ko']
+        extra = ['mali_prot_alloc.ko', 'mali_mgm.ko', 'mtk_gpufreq_wrapper.ko', 'mtk_gpufreq_mt6895.ko', 'gpu_bm.ko', 'ged.ko']
         add = [d for d in extra if d not in deps.split()]
         if add:
             line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'

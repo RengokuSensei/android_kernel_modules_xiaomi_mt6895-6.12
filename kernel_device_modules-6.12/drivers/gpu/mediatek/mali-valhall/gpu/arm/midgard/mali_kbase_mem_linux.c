@@ -663,6 +663,7 @@ out_unlock:
  *
  * Return: Number of pages which can be freed.
  */
+#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
 static
 unsigned long kbase_mem_evictable_reclaim_count_objects(struct shrinker *s,
 		struct shrink_control *sc)
@@ -676,9 +677,11 @@ unsigned long kbase_mem_evictable_reclaim_count_objects(struct shrinker *s,
 
 #if !IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
 	// avoid to report when shrinking for mtk_iova_dbg_alloc
+#if defined(__GFP_ATOMIC)
 	WARN((sc->gfp_mask & __GFP_ATOMIC),
 	     "Shrinkers cannot be called for GFP_ATOMIC allocations. Check kernel mm for problems. gfp_mask==%x\n",
 	     sc->gfp_mask);
+#endif
 	WARN(in_atomic(),
 	     "Shrinker called whilst in atomic context. The caller must switch to using GFP_ATOMIC or similar. gfp_mask==%x\n",
 	     sc->gfp_mask);
@@ -770,6 +773,7 @@ out_unlock:
 
 	return freed;
 }
+#endif
 
 int kbase_mem_evictable_init(struct kbase_context *kctx)
 {
@@ -778,6 +782,7 @@ int kbase_mem_evictable_init(struct kbase_context *kctx)
 
 	atomic_set(&kctx->evict_nents, 0);
 
+#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
 	kctx->reclaim.count_objects = kbase_mem_evictable_reclaim_count_objects;
 	kctx->reclaim.scan_objects = kbase_mem_evictable_reclaim_scan_objects;
 	kctx->reclaim.seeks = DEFAULT_SEEKS;
@@ -786,12 +791,15 @@ int kbase_mem_evictable_init(struct kbase_context *kctx)
 	 */
 	kctx->reclaim.batch = 0;
 	register_shrinker(&kctx->reclaim);
+#endif
 	return 0;
 }
 
 void kbase_mem_evictable_deinit(struct kbase_context *kctx)
 {
+#if (KERNEL_VERSION(6, 7, 0) > LINUX_VERSION_CODE)
 	unregister_shrinker(&kctx->reclaim);
+#endif
 }
 
 /**
@@ -3302,7 +3310,15 @@ KBASE_EXPORT_TEST_API(kbase_vunmap);
 
 static void kbasep_add_mm_counter(struct mm_struct *mm, int member, long value)
 {
-#if (KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE)
+#if (KERNEL_VERSION(6, 2, 0) <= LINUX_VERSION_CODE)
+	/* In Linux 6.2+, mm->rss_stat is a struct percpu_counter array and
+	 * cannot be modified directly by modules. Context page tracking is
+	 * already maintained via kctx->nonmapped_pages.
+	 */
+	(void)mm;
+	(void)member;
+	(void)value;
+#elif (KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE)
 	/* To avoid the build breakage due to an unexported kernel symbol
 	 * 'mm_trace_rss_stat' from later kernels, i.e. from V4.19.0 onwards,
 	 * we inline here the equivalent of 'add_mm_counter()' from linux
@@ -3322,12 +3338,14 @@ void kbasep_os_process_page_usage_update(struct kbase_context *kctx, int pages)
 		return;
 
 	atomic_add(pages, &kctx->nonmapped_pages);
+#if (KERNEL_VERSION(6, 2, 0) > LINUX_VERSION_CODE)
 #ifdef SPLIT_RSS_COUNTING
 	kbasep_add_mm_counter(mm, MM_FILEPAGES, pages);
 #else
 	spin_lock(&mm->page_table_lock);
 	kbasep_add_mm_counter(mm, MM_FILEPAGES, pages);
 	spin_unlock(&mm->page_table_lock);
+#endif
 #endif
 }
 
