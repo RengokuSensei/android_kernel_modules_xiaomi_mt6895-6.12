@@ -5792,6 +5792,9 @@ MODULE_VERSION(MALI_RELEASE_NAME " (UK version " \
 		__stringify(BASE_UK_VERSION_MAJOR) "." \
 		__stringify(BASE_UK_VERSION_MINOR) ")");
 MODULE_SOFTDEP("pre: memory_group_manager");
+#ifdef MODULE_IMPORT_NS
+MODULE_IMPORT_NS(DMA_BUF);
+#endif
 
 #define CREATE_TRACE_POINTS
 /* Create the trace points (otherwise we just get code to call a tracepoint) */
