@@ -216,8 +216,7 @@ static void setupfw_work_handler(struct work_struct *work)
 		ret);
 
 #else
-	if (ret == -1)
-		pr_debug("%s: sspm_ipi is not support!\n", __func__);
+	pr_debug("%s: sspm_ipi is not support!\n", __func__);
 #endif /* CONFIG_MTK_QOS_FRAMEWORK */
 }
 

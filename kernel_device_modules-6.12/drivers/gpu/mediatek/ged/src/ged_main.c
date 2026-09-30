@@ -1015,6 +1015,7 @@ module_init(ged_init);
 module_exit(ged_exit);
 
 MODULE_DEVICE_TABLE(of, g_ged_of_match);
+MODULE_IMPORT_NS(DMA_BUF);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("MediaTek GED Driver");
 MODULE_AUTHOR("MediaTek Inc.");

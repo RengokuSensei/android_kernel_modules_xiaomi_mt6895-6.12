@@ -503,10 +503,10 @@ for line in lines:
         add = [d for d in extra if d not in deps.split()]
         if add:
             line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
-    # mali_kbase_mt6895.ko must load after memory allocators and gpufreq modules
+    # mali_kbase_mt6895.ko must load after memory allocators (non-symbol runtime hooks)
     if line.startswith('mali_kbase_mt6895.ko:'):
         deps = line.rstrip('\n').split(':', 1)[1]
-        extra = ['mali_prot_alloc.ko', 'mali_mgm.ko', 'mtk_gpufreq_wrapper.ko', 'mtk_gpufreq_mt6895.ko', 'gpu_bm.ko', 'ged.ko']
+        extra = ['mali_prot_alloc.ko', 'mali_mgm.ko']
         add = [d for d in extra if d not in deps.split()]
         if add:
             line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
@@ -581,6 +581,15 @@ PYEOF
             exit 1
         fi
     fi
+
+    # Verify symbol resolution and provider load order for all modules in modules.load
+    local ALL_SYMVERS="$WORK/all_Module.symvers"
+    cat "$OUT/Module.symvers" "$M/Module.symvers" 2>/dev/null > "$ALL_SYMVERS" || cp "$OUT/Module.symvers" "$ALL_SYMVERS"
+    echo "Running check_syms validation on vendor ramdisk modules..."
+    python3 "$SCRIPT_DIR/scripts/check_syms.py" "$ALL_SYMVERS" "$VD/vendor_ramdisk/rd/lib/modules" modules.load || {
+        echo "ERROR: check_syms validation failed! Unresolved symbols or ordering violations detected." >&2
+        exit 1
+    }
     cd "$VD/vendor_ramdisk/rd"
     find . | cpio -o -H newc > "$VD/vr_new.cpio" 2>/dev/null || true
     # IMPORTANT: compress with lz4 -l (legacy, magic 02 21 4c 18) - the
