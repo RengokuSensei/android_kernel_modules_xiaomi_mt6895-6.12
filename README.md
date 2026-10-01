@@ -107,6 +107,34 @@ All drivers are registered in Kleaf's `kernel/kleaf/mgk_64.bzl` and `BUILD.bazel
 
 ---
 
+## Hardware ⟷ Kernel Driver ⟷ Firmware Map (Dimensity 8100 / MT6895)
+
+On MediaTek platforms, the GPU does not operate in isolation—it is part of a tightly coupled co-processor ecosystem managed via firmware mailboxes, interconnect QoS, and real-time power arbiters.
+
+| Hardware Block | Physical Hardware Role | Kernel Modules / Drivers | Firmware / Interface |
+| :--- | :--- | :--- | :--- |
+| **Arm Mali-G610 MC6** | GPU 3D rendering, compute engines, job queues, shader cores | `mali_kbase_mt6895.ko`<br>`mali_mgm.ko`<br>`mali_prot_alloc.ko` | Direct MMIO registers + IRQ lines mapped in `xaga-mt6895.dtsi` |
+| **SSPM** *(Smart System Power Manager)* | Dedicated **Cortex-M4** hardware co-processor managing real-time low-power states, DRAM bandwidth limits, and GPU frequency bounding | `tinysys-scmi.ko`<br>`sspm_v3.ko`<br>`mtk_tinysys_ipi.ko` | **`sspm.img`**<br>Communicates via ARM SCMI mailbox and shared SYSRAM buffer |
+| **GPUEB** *(GPU Event Bus)* | Hardware performance counter bus monitoring GPU frame execution time, load bursts, and thermal output | `mtk_gpueb.ko`<br>`ged.ko` (`src/ged_eb.c`) | Direct interconnect bus registers |
+| **DVFSRC & MT6315 PMIC** | Hardware Dynamic Voltage/Frequency Scaling Resource Collector + Buck Regulator for `V_GPU` power rails | `mtk-dvfsrc*.ko`<br>`mtk_gpufreq_mt6895.ko`<br>`mtk_gpu_hal.ko` | Controls `VGPU_DVFS` and `VGPU_SRAM` power domains |
+| **EMI / SMI** *(Ext. Memory Interface & Smart Multimedia Interface)* | LPDDR5 memory controller, QoS bus arbitration, memory bandwidth throttling | `mtk_qos.ko`<br>`mtk_gpu_qos.ko`<br>`gpu_bm.c` | Shares bandwidth tables with SSPM over SCMI (`qos_ipi_to_sspm_scmi_command`) |
+| **MTK IOMMU & EMI MPU** | Address translation (MMU-500) and hardware memory firewall protecting GPU buffers and DRM secure memory | `mtk_iommu.ko`<br>`emimpu.ko`<br>`system_heap.ko` | Hardware Translation Lookaside Buffers (TLB) |
+| **Gas Engine / Orchestration** | MediaTek proprietary user-space $\leftrightarrow$ kernel arbitration layer (FPSGO, frame fence sync, thermal back-off) | `ged.ko` | `/dev/ged` interface exposed to Android `SurfaceFlinger` and `libGLES_mali.so` |
+
+### Deterministic Initialization Sequence
+
+```mermaid
+graph TD
+    A["1. Hardware Mailbox & Clocks (tinysys-scmi.ko)"] --> B["2. SSPM Co-Processor Buffer (sspm_v3.ko)"]
+    B --> C["3. Bus Bandwidth QoS Engine (mtk_qos.ko)"]
+    C --> D["4. GPU QoS Arbitrator (mtk_gpu_qos.ko)"]
+    D --> E["5. MediaTek Gas Engine Driver (ged.ko)"]
+    E --> F["6. Arm Mali GPU Driver (mali_kbase_mt6895.ko)"]
+    F --> G["7. /dev/mali0 created -> Android UI (SurfaceFlinger)"]
+```
+
+---
+
 ## Project Status
 
 ### ✅ Completed
