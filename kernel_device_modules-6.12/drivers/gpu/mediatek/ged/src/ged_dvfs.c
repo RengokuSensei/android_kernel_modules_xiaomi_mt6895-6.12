@@ -2873,8 +2873,7 @@ void set_api_sync_flag(int flag)
 		MTKGPUQoS_mode_ratio(6080);
 	} else if (flag == 10) {
 		MTKGPUQoS_mode_ratio(8);
-#if !IS_ENABLED(CONFIG_MTK_LEGACY_THERMAL) && !IS_ENABLED(CONFIG_MTK_PLAT_POWER_6781) \
-	&& !IS_ENABLED(CONFIG_MTK_GPU_MT6855_SUPPORT) && IS_ENABLED(CONFIG_MTK_THERMAL_INTERFACE)
+#if 0 /* MT6895 uses DVFSRC + SSPM thermal throttling; set_gpu_pre_throttle is absent on stock 5.10 */
 	} else if ((flag & 0xFFF00000) == 0x55600000) {
 		// pre-throttle cases
 		if ((flag & 0x0000FFFF) == 0xFFFF) {
