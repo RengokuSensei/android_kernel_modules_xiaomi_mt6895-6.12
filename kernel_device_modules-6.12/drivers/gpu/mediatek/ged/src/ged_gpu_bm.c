@@ -16,6 +16,7 @@
 #if defined(MTK_GPU_BM_2)
 #include <gpu_bm.h>
 #if IS_ENABLED(CONFIG_MTK_TINYSYS_SSPM_SUPPORT)
+#include <sspm_reservedmem.h>
 #include <sspm_reservedmem_define.h>
 static unsigned int g_qos_sysram_support;
 static phys_addr_t rec_phys_addr, rec_virt_addr;

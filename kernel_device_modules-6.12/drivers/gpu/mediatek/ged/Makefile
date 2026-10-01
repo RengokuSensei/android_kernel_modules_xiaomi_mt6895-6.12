@@ -78,6 +78,7 @@ ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/gpu/mediatek/gpueb
 ccflags-y += \
 		-I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/sspm/ \
 		-I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/sspm/v2 \
+		-I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/sspm/v3 \
 		-I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/qos/ \
 		-I$(DEVICE_MODULES_PATH)/drivers/gpu/mediatek/gpu_bm/
 

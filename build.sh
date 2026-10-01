@@ -503,10 +503,38 @@ for line in lines:
         add = [d for d in extra if d not in deps.split()]
         if add:
             line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
-    # mali_kbase_mt6895.ko must load after memory allocators (non-symbol runtime hooks)
+    # mali_kbase_mt6895.ko must load after memory allocators and ged
     if line.startswith('mali_kbase_mt6895.ko:'):
         deps = line.rstrip('\n').split(':', 1)[1]
-        extra = ['mali_prot_alloc.ko', 'mali_mgm.ko']
+        extra = ['mali_prot_alloc.ko', 'mali_mgm.ko', 'ged.ko']
+        add = [d for d in extra if d not in deps.split()]
+        if add:
+            line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
+    # ged.ko must load after mtk_gpu_qos and sspm_v3
+    if line.startswith('ged.ko:'):
+        deps = line.rstrip('\n').split(':', 1)[1]
+        extra = ['sspm_v3.ko', 'mtk_gpu_qos.ko']
+        add = [d for d in extra if d not in deps.split()]
+        if add:
+            line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
+    # mtk_gpu_qos.ko must load after mtk_qos
+    if line.startswith('mtk_gpu_qos.ko:'):
+        deps = line.rstrip('\n').split(':', 1)[1]
+        extra = ['mtk_qos.ko']
+        add = [d for d in extra if d not in deps.split()]
+        if add:
+            line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
+    # mtk_qos.ko must load after sspm_v3 and tinysys-scmi
+    if line.startswith('mtk_qos.ko:'):
+        deps = line.rstrip('\n').split(':', 1)[1]
+        extra = ['sspm_v3.ko', 'tinysys-scmi.ko']
+        add = [d for d in extra if d not in deps.split()]
+        if add:
+            line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
+    # sspm_v3.ko must load after tinysys-scmi
+    if line.startswith('sspm_v3.ko:'):
+        deps = line.rstrip('\n').split(':', 1)[1]
+        extra = ['tinysys-scmi.ko']
         add = [d for d in extra if d not in deps.split()]
         if add:
             line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
@@ -591,6 +619,7 @@ PYEOF
         exit 1
     }
     cd "$VD/vendor_ramdisk/rd"
+    sed -i 's/^ro\.debuggable=0/ro.debuggable=1/' prop.default 2>/dev/null || true
     find . | cpio -o -H newc > "$VD/vr_new.cpio" 2>/dev/null || true
     # IMPORTANT: compress with lz4 -l (legacy, magic 02 21 4c 18) - the
     # vendor_ramdisk is the kernel's initrd (/dev/ram), and both LK and the

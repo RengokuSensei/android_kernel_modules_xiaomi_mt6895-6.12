@@ -226,7 +226,7 @@ phys_addr_t sspm_sbuf_get(unsigned int offset)
 		pr_notice("[SSPM] illegal sbuf request: 0x%x\n", offset);
 		return 0;
 	} else {
-		return (phys_addr_t)(sspm_base + offset);
+		return (phys_addr_t)(uintptr_t)(sspm_base + offset);
 	}
 }
 EXPORT_SYMBOL_GPL(sspm_sbuf_get);

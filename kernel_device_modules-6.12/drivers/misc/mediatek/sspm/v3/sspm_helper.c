@@ -260,7 +260,7 @@ static void __exit sspm_pdrv_exit(void)
 	pr_info("[SSPM] sspm platform driver Exit.\n");
 }
 
-MODULE_SOFTDEP("pre: tinysys-scmi.ko");
+MODULE_SOFTDEP("pre: tinysys-scmi.ko");
 MODULE_DESCRIPTION("MEDIATEK Module SSPM platform driver");
 MODULE_LICENSE("GPL v2");
 

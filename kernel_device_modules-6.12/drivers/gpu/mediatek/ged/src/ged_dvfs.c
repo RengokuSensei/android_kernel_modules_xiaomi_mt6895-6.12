@@ -2874,7 +2874,7 @@ void set_api_sync_flag(int flag)
 	} else if (flag == 10) {
 		MTKGPUQoS_mode_ratio(8);
 #if !IS_ENABLED(CONFIG_MTK_LEGACY_THERMAL) && !IS_ENABLED(CONFIG_MTK_PLAT_POWER_6781) \
-	&& !IS_ENABLED(CONFIG_MTK_GPU_MT6855_SUPPORT)
+	&& !IS_ENABLED(CONFIG_MTK_GPU_MT6855_SUPPORT) && IS_ENABLED(CONFIG_MTK_THERMAL_INTERFACE)
 	} else if ((flag & 0xFFF00000) == 0x55600000) {
 		// pre-throttle cases
 		if ((flag & 0x0000FFFF) == 0xFFFF) {
