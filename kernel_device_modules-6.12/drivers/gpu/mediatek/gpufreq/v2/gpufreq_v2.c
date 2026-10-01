@@ -1855,28 +1855,35 @@ static int gpufreq_shared_memory_init(void)
 	phys_addr_t gpueb_mem_pa = 0, gpueb_mem_va = 0, gpueb_mem_size = 0;
 	phys_addr_t gpufreq_mem_pa = 0, gpufreq_mem_va = 0;
 	unsigned int gpufreq_mem_size = 0;
+	const char *prop_table = "gpueb_mem_table";
 
 	/* get pre-allocated gpueb shared memory from dts */
 	of_gpueb = of_find_compatible_node(NULL, NULL, "mediatek,gpueb");
-	if (unlikely(!of_gpueb)) {
-		GPUFREQ_LOGE("fail to find gpueb of_node");
-		ret = GPUFREQ_ENOENT;
-		goto done;
+	if (of_gpueb) {
+		if (of_property_read_u64(of_gpueb, "gpueb_mem_addr", &gpueb_mem_pa))
+			of_property_read_u64(of_gpueb, "gpueb-mem-addr", &gpueb_mem_pa);
+
+		if (of_property_read_u64(of_gpueb, "gpueb_mem_size", &gpueb_mem_size))
+			of_property_read_u64(of_gpueb, "gpueb-mem-size", &gpueb_mem_size);
+
+		if (of_find_property(of_gpueb, "gpueb-mem-table", NULL))
+			prop_table = "gpueb-mem-table";
+		else if (of_find_property(of_gpueb, "gpueb_mem_table", NULL))
+			prop_table = "gpueb_mem_table";
+
+		of_property_read_u32_index(of_gpueb,
+			prop_table, GPUFREQ_MEM_TABLE_IDX, &gpufreq_mem_size);
 	}
 
-	of_property_read_u64(of_gpueb, "gpueb_mem_addr", &gpueb_mem_pa);
-	if (unlikely(!gpueb_mem_pa)) {
-		GPUFREQ_LOGE("fail to get gpueb reserved memory physical address");
-		ret = GPUFREQ_ENOENT;
-		goto done;
+	/* Fallback for MT6895 default GPUEB reserved memory */
+	if (!gpueb_mem_pa) {
+		GPUFREQ_LOGI("using default MT6895 gpueb reserved memory physical address");
+		gpueb_mem_pa = 0x7c600000;
 	}
-
-	of_property_read_u64(of_gpueb, "gpueb_mem_size", &gpueb_mem_size);
-	if (unlikely(!gpueb_mem_size)) {
-		GPUFREQ_LOGE("fail to get gpueb reserved memory size");
-		ret = GPUFREQ_ENOENT;
-		goto done;
-	}
+	if (!gpueb_mem_size)
+		gpueb_mem_size = 0x200000;
+	if (!gpufreq_mem_size)
+		gpufreq_mem_size = 0x1000;
 
 	/* Transfer physical addr to virtual addr */
 	gpueb_mem_va = (phys_addr_t)(size_t)ioremap_wc(gpueb_mem_pa, gpueb_mem_size);
@@ -1886,14 +1893,6 @@ static int gpufreq_shared_memory_init(void)
 		goto done;
 	}
 
-	/* init gpufreq shared memory from gpueb shared memory */
-	of_property_read_u32_index(of_gpueb,
-		"gpueb-mem-table", GPUFREQ_MEM_TABLE_IDX, &gpufreq_mem_size);
-	if (unlikely(!gpufreq_mem_size)) {
-		GPUFREQ_LOGE("fail to get gpufreq reserved memory size");
-		ret = GPUFREQ_ENOENT;
-		goto done;
-	}
 	/* gpufreq shared memory start from the beginning of gpueb's */
 	gpufreq_mem_pa = gpueb_mem_pa;
 	gpufreq_mem_va = gpueb_mem_va;

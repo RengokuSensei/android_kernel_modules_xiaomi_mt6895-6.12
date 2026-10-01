@@ -136,92 +136,112 @@ int gpueb_reserved_mem_init(struct platform_device *pdev)
 	unsigned int i, m_idx, m_size;
 	phys_addr_t accumlate_memory_size = 0;
 	int ret;
+	const char *prop_table = "gpueb_mem_table";
+	const char *prop_name_table = "gpueb_mem_name_table";
 
-	of_property_read_u64(of_gpueb, "gpueb_mem_addr", &gpueb_mem_base_phys);
-	of_property_read_u64(of_gpueb, "gpueb_mem_size", &gpueb_mem_size);
+	if (of_property_read_u64(of_gpueb, "gpueb_mem_addr", &gpueb_mem_base_phys))
+		of_property_read_u64(of_gpueb, "gpueb-mem-addr", &gpueb_mem_base_phys);
+	if (of_property_read_u64(of_gpueb, "gpueb_mem_size", &gpueb_mem_size))
+		of_property_read_u64(of_gpueb, "gpueb-mem-size", &gpueb_mem_size);
 
+	/* Fallback for MT6895 default GPUEB reserved memory */
 	if (!gpueb_mem_base_phys || !gpueb_mem_size) {
-		gpueb_log_d(GPUEB_TAG, "invalid gpueb_mem_base_phys (0x%llx), gpueb_mem_size (%llx)",
-			gpueb_mem_base_phys, gpueb_mem_size);
-		return -EINVAL;
+		pr_info(GPUEB_TAG " using default MT6895 gpueb reserved mem\n");
+		gpueb_mem_base_phys = 0x7c600000;
+		gpueb_mem_size = 0x200000;
 	}
 
-	gpueb_log_d(GPUEB_TAG, "base_phys = 0x%llx, size = 0x%llx",
-		gpueb_mem_base_phys, gpueb_mem_size);
+	pr_info(GPUEB_TAG " base_phys = 0x%llx, size = 0x%llx\n",
+		(u64)gpueb_mem_base_phys, (u64)gpueb_mem_size);
 
 	if ((gpueb_mem_base_phys >= 0x800000000ULL) || (gpueb_mem_base_phys < 0x40000000ULL)) {
-		/*
-		 * The gpueb remapped region is fixed, only
-		 * 0x4000_0000 ~ 0x7_FFFF_FFFF is accessible.
-		 */
-		gpueb_log_d(GPUEB_TAG, "Error: Wrong Address (0x%llx)", gpueb_mem_base_phys);
-		BUG_ON(1);
+		pr_err(GPUEB_TAG " Error: Wrong Address (0x%llx)\n", (u64)gpueb_mem_base_phys);
 		return -1;
 	}
+
+	/* Detect property naming: support both underscore and hyphen */
+	if (of_find_property(pdev->dev.of_node, "gpueb-mem-table", NULL))
+		prop_table = "gpueb-mem-table";
+	else if (of_find_property(pdev->dev.of_node, "gpueb_mem_table", NULL))
+		prop_table = "gpueb_mem_table";
+
+	if (of_find_property(pdev->dev.of_node, "gpueb-mem-name-table", NULL))
+		prop_name_table = "gpueb-mem-name-table";
+	else if (of_find_property(pdev->dev.of_node, "gpueb_mem_name_table", NULL))
+		prop_name_table = "gpueb_mem_name_table";
 
 	// Set reserved memory table
 	gpueb_mem_num = of_property_count_u32_elems(
 			pdev->dev.of_node,
-			"gpueb-mem-table")
+			prop_table)
 			/ MEMORY_TBL_ELEM_NUM;
 	if (gpueb_mem_num <= 0) {
-		gpueb_log_d(GPUEB_TAG, "gpueb-mem-table not found");
-		gpueb_mem_num = 0;
-	}
+		pr_warn(GPUEB_TAG " %s not found, using MT6895 default table\n", prop_table);
+		gpueb_mem_num = 2;
+		gpueb_reserve_mblock_ary_name[0] = "MEM_ID_GPUFREQ";
+		gpueb_reserve_mblock_ary_name[1] = "MEM_ID_LOG";
+		gpueb_reserve_mblock_ary = vzalloc(sizeof(struct gpueb_reserve_mblock) * gpueb_mem_num);
+		if (!gpueb_reserve_mblock_ary)
+			return -ENOMEM;
+		gpueb_reserve_mblock_ary[0].num = 0;
+		gpueb_reserve_mblock_ary[0].size = 0x1000;
+		gpueb_reserve_mblock_ary[1].num = 1;
+		gpueb_reserve_mblock_ary[1].size = 0x180000;
+	} else {
+		// Get reserved mblock name
+		ret = of_property_read_string_array(pdev->dev.of_node,
+				prop_name_table,
+				gpueb_reserve_mblock_ary_name,
+				gpueb_mem_num);
+		if (ret < 0) {
+			pr_err(GPUEB_TAG " %s not found\n", prop_name_table);
+			return -1;
+		}
 
-	// Get reserved mblock name
-	ret = of_property_read_string_array(pdev->dev.of_node,
-			"gpueb-mem-name-table",
-			gpueb_reserve_mblock_ary_name,
-			gpueb_mem_num);
-	if (ret < 0) {
-		gpueb_log_d(GPUEB_TAG, "gpueb-mem-name-table not found");
-		return -1;
+		gpueb_reserve_mblock_ary = vzalloc(sizeof(struct gpueb_reserve_mblock) * gpueb_mem_num);
+		if (!gpueb_reserve_mblock_ary)
+			return -ENOMEM;
+
+		for (i = 0; i < gpueb_mem_num; i++) {
+			ret = of_property_read_u32_index(pdev->dev.of_node,
+					prop_table,
+					i * MEMORY_TBL_ELEM_NUM,
+					&m_idx);
+			if (ret) {
+				pr_err(GPUEB_TAG " Cannot get memory index(%d)\n", i);
+				return -1;
+			}
+			gpueb_reserve_mblock_ary[m_idx].num = m_idx;
+
+			ret = of_property_read_u32_index(pdev->dev.of_node,
+					prop_table,
+					(i * MEMORY_TBL_ELEM_NUM) + 1,
+					&m_size);
+			if (ret) {
+				pr_err(GPUEB_TAG " Cannot get memory size(%d)\n", i);
+				return -1;
+			}
+
+			if (m_idx >= gpueb_mem_num) {
+				pr_warn(GPUEB_TAG " Skip unexpected index, %d\n", m_idx);
+				continue;
+			}
+
+			gpueb_reserve_mblock_ary[m_idx].size = m_size;
+			pr_info(GPUEB_TAG " Reserved block <%d  %d>\n", m_idx, m_size);
+		}
 	}
 
 	for (i = 0; i < gpueb_mem_num; i++) {
-		gpueb_log_d(GPUEB_TAG, "gpueb_reserve_mblock_ary_name[%d] = %s",
+		pr_info(GPUEB_TAG " gpueb_reserve_mblock_ary_name[%d] = %s\n",
 			i, gpueb_reserve_mblock_ary_name[i]);
-	}
-
-	gpueb_reserve_mblock_ary = vzalloc(sizeof(struct gpueb_reserve_mblock) * gpueb_mem_num);
-
-	for (i = 0; i < gpueb_mem_num; i++) {
-		// Get reserved block's ID
-		ret = of_property_read_u32_index(pdev->dev.of_node,
-				"gpueb-mem-table",
-				i * MEMORY_TBL_ELEM_NUM,
-				&m_idx);
-		if (ret) {
-			gpueb_log_d(GPUEB_TAG, "Cannot get memory index(%d)", i);
-			return -1;
-		}
-		gpueb_reserve_mblock_ary[m_idx].num = m_idx;
-
-		// Get reserved block's size
-		ret = of_property_read_u32_index(pdev->dev.of_node,
-				"gpueb-mem-table",
-				(i * MEMORY_TBL_ELEM_NUM) + 1,
-				&m_size);
-		if (ret) {
-			gpueb_log_d(GPUEB_TAG, "Cannot get memory size(%d)", i);
-			return -1;
-		}
-
-		if (m_idx >= gpueb_mem_num) {
-			gpueb_log_d(GPUEB_TAG, "Skip unexpected index, %d", m_idx);
-			continue;
-		}
-
-		gpueb_reserve_mblock_ary[m_idx].size = m_size;
-		gpueb_log_d(GPUEB_TAG, "Reserved block <%d  %d>", m_idx, m_size);
 	}
 
 	// Transfer physical address to virtual address
 	gpueb_mem_base_virt = (phys_addr_t)(size_t)ioremap_wc(
 			gpueb_mem_base_phys, gpueb_mem_size);
-	gpueb_log_d(GPUEB_TAG, "Reserved phy_base = 0x%llx, len:0x%llx, Reserved virt_base = 0x%llx",
-		gpueb_mem_base_phys, gpueb_mem_size, gpueb_mem_base_virt);
+	pr_info(GPUEB_TAG " Reserved phy_base = 0x%llx, len:0x%llx, Reserved virt_base = 0x%llx\n",
+		(u64)gpueb_mem_base_phys, (u64)gpueb_mem_size, (u64)gpueb_mem_base_virt);
 
 	// Init the access address for each block
 	for (i = 0; i < gpueb_mem_num; i++) {
@@ -230,13 +250,13 @@ int gpueb_reserved_mem_init(struct platform_device *pdev)
 		gpueb_reserve_mblock_ary[i].start_virt = gpueb_mem_base_virt +
 			accumlate_memory_size;
 		accumlate_memory_size += gpueb_reserve_mblock_ary[i].size;
-		gpueb_log_d(GPUEB_TAG, "Reserved block[%d] phys:0x%llx, virt:0x%llx, len:0x%llx",
-			i, gpueb_reserve_mblock_ary[i].start_phys,
-			gpueb_reserve_mblock_ary[i].start_virt, gpueb_reserve_mblock_ary[i].size);
+		pr_info(GPUEB_TAG " Reserved block[%d] phys:0x%llx, virt:0x%llx, len:0x%llx\n",
+			i, (u64)gpueb_reserve_mblock_ary[i].start_phys,
+			(u64)gpueb_reserve_mblock_ary[i].start_virt, (u64)gpueb_reserve_mblock_ary[i].size);
 	}
 
 	if (accumlate_memory_size > gpueb_mem_size)
-		gpueb_log_d(GPUEB_TAG, "Total memory in memory table is more than reserved");
+		pr_warn(GPUEB_TAG " Total memory in memory table is more than reserved\n");
 
 	return 0;
 }

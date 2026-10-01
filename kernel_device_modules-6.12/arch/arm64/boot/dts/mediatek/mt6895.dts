@@ -3418,6 +3418,17 @@
 			interrupts = <GIC_SPI 516 IRQ_TYPE_LEVEL_HIGH 0>;
 			interrupt-names = "mbox0";
 
+			gpueb_mem_addr = <0x0 0x7c600000>;
+			gpueb_mem_size = <0x0 0x200000>;
+
+			gpueb_mem_table =
+				<0 0x1000>,   /* 4KB */
+				<1 0x180000>; /* 1.5MB */
+
+			gpueb_mem_name_table =
+				"MEM_ID_GPUFREQ", /* GPUFREQ */
+				"MEM_ID_LOG";     /* LOGGER */
+
 			gpueb-mem-table =
 				<0 0x1000>,   /* 4KB */
 				<1 0x180000>; /* 1.5MB */
