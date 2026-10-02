@@ -178,7 +178,7 @@ static void spbm_scmi_init(void)
 	unsigned int ret;
 
 	_tinfo = get_scmi_tinysys_info();
-	if (!_tinfo) {
+	if (!_tinfo || !_tinfo->sdev || !_tinfo->sdev->dev.of_node) {
 		pr_info("spbm get scmi info fail\n");
 		return;
 	}

@@ -488,16 +488,27 @@
 			scmi_tinysys: protocol@80 {
 				reg = <0x80>;
 				scmi-qos = <1>;
+				scmi_qos = <1>;
 				scmi-pmic = <2>;
+				scmi_pmic = <2>;
 				scmi-met = <3>;
+				scmi_met = <3>;
 				scmi-gpupm = <6>;
+				scmi_gpupm = <6>;
 				scmi-plt = <7>;
+				scmi_plt = <7>;
 				scmi-smi = <8>;
+				scmi_smi = <8>;
 				scmi-cm = <9>;
+				scmi_cm = <9>;
 				scmi-slbc = <10>;
+				scmi_slbc = <10>;
 				scmi-ssc = <11>;
+				scmi_ssc = <11>;
 				scmi-apmcupm = <12>;
+				scmi_apmcupm = <12>;
 				scmi-mminfra = <13>;
+				scmi_mminfra = <13>;
 			};
 		};
 	};

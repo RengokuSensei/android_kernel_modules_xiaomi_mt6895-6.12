@@ -46,8 +46,10 @@ static void gpu_send_enable_ipi(unsigned int type, unsigned int enable)
 	ipi_cmd.cmd = type;
 	ipi_cmd.power_statue= enable;
 #ifdef CONFIG_MALI_SCMI_ENABLE
-	ret = scmi_tinysys_common_set(_tinfo->ph, gpu_pm_id,
-			ipi_cmd.cmd, ipi_cmd.power_statue, 0, 0, 0);
+	if (ipi_register_flag && _tinfo && _tinfo->ph) {
+		ret = scmi_tinysys_common_set(_tinfo->ph, gpu_pm_id,
+				ipi_cmd.cmd, ipi_cmd.power_statue, 0, 0, 0);
+	}
 #endif
 	if (ret) {
 		pr_info("gpu_send_enable_ipi %d send fail,ret=%d\n",
@@ -212,14 +214,24 @@ void MTKGPUSet_idle_time(unsigned int val){
 
 int MTKGPUPower_model_init(void) {
 #ifdef CONFIG_MALI_SCMI_ENABLE
-	int ret;
+	int ret = -EINVAL;
+	ipi_register_flag = false;
 	_tinfo = get_scmi_tinysys_info();
-	ret = of_property_read_u32(_tinfo->sdev->dev.of_node, "scmi_gpupm",
-			&gpu_pm_id);
-	ipi_register_flag = true;
-	if (ret) {
-		pr_info("get scmi_qos fail, ret %d\n", ret);
-		ipi_register_flag = false;
+	if (_tinfo && _tinfo->sdev && _tinfo->sdev->dev.of_node) {
+		ret = of_property_read_u32(_tinfo->sdev->dev.of_node, "scmi-gpupm",
+				&gpu_pm_id);
+		if (ret)
+			ret = of_property_read_u32(_tinfo->sdev->dev.of_node, "scmi_gpupm",
+					&gpu_pm_id);
+		if (!ret) {
+			ipi_register_flag = true;
+		} else {
+			pr_warn("get scmi-gpupm fail, ret %d, using default id 6\n", ret);
+			gpu_pm_id = 6;
+			ipi_register_flag = true;
+		}
+	} else {
+		pr_warn("scmi tinysys info not ready for gpupm\n");
 	}
 #endif
 

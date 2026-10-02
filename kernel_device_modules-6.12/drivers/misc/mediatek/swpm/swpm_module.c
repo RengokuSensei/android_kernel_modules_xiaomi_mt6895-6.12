@@ -86,7 +86,7 @@ static int swpm_scmi_init(void)
 #if IS_ENABLED(CONFIG_MTK_TINYSYS_SCMI)
 	tinfo = get_scmi_tinysys_info();
 
-	if (!tinfo) {
+	if (!tinfo || !tinfo->sdev || !tinfo->sdev->dev.of_node) {
 		pr_info("get scmi info fail\n");
 		return ret;
 	}
