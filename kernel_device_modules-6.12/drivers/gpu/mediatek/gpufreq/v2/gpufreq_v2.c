@@ -177,6 +177,10 @@ unsigned int gpufreq_power_ctrl_enable(void)
 	else
 		GPUFREQ_LOGE("null gpufreq shared memory (ENOENT)");
 
+	/* If GPUEB is active, power control is supported and handled by GPUEB */
+	if (g_gpueb_support)
+		return true;
+
 	return power_control;
 }
 EXPORT_SYMBOL(gpufreq_power_ctrl_enable);
@@ -863,6 +867,9 @@ int gpufreq_power_control(enum gpufreq_power_state power)
 done_unlock:
 	if (unlikely(ret < 0))
 		GPUFREQ_LOGE("fail to control power state: %s (%d)",
+			power ? "GPU_PWR_ON" : "GPU_PWR_OFF", ret);
+	else
+		GPUFREQ_LOGI("power control state changed: %s (%d)",
 			power ? "GPU_PWR_ON" : "GPU_PWR_OFF", ret);
 
 	raw_spin_unlock_irqrestore(&gpufreq_power_lock, g_pwr_irq_flags);
@@ -1901,8 +1908,7 @@ static int gpufreq_shared_memory_init(void)
 	g_shared_mem_pa = gpufreq_mem_pa;
 	g_shared_mem_size = gpufreq_mem_size;
 
-	/* init to 0 */
-	memset((void *)gpufreq_mem_va, 0, gpufreq_mem_size);
+	/* Do NOT zero shared memory: GPUEB firmware pre-populates status & tables */
 
 	GPUFREQ_LOGI("shared status memory: 0x%llx (phy_addr: 0x%llx, size: %u, used: %lu)",
 		(unsigned long long)g_shared_status, g_shared_mem_pa,
