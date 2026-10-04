@@ -459,3 +459,6 @@ obj-m += clk-mt6895-peri.o
 
 # xaga: platform module wiring
 obj-m += clk-mt6895-vcodec.o
+
+# xaga: platform module wiring
+obj-m += clk-mt6895-mfgcfg.o

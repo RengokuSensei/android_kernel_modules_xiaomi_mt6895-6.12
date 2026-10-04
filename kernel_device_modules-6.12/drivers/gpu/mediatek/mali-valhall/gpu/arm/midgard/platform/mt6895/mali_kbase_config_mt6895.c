@@ -3,6 +3,7 @@
  * Copyright (c) 2021 MediaTek Inc.
  */
 
+#include <linux/io.h>
 #include <linux/ioport.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
@@ -102,6 +103,32 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 	}
 	dev_info(kbdev->dev, "GPU PM Callback - Power On Successful\n");
 #endif /* CONFIG_MTK_GPUFREQ_V2 */
+
+	/* Check SPM power & ungate BG3D clock gate */
+	{
+		void __iomem *spm = ioremap(0x1c001000, 0x1000);
+		if (spm) {
+			u32 mfg0 = readl(spm + 0xeb8);
+			u32 mfg1 = readl(spm + 0xebc);
+			u32 xpu = readl(spm + 0xf3c);
+			dev_info(kbdev->dev, "GPU PM: SPM PWR_CON MFG0=0x%08x MFG1=0x%08x XPU=0x%08x\n",
+				mfg0, mfg1, xpu);
+			iounmap(spm);
+		}
+		void __iomem *mfg_top = ioremap(0x13fbf000, 0x1000);
+		if (mfg_top) {
+			u32 sta = readl(mfg_top + 0x0);
+			dev_info(kbdev->dev, "GPU PM: mfg_top_config sta=0x%08x (BG3D bit0 %s)\n",
+				sta, (sta & 1) ? "GATED" : "UNGATED");
+			if (sta & 1) {
+				dev_info(kbdev->dev, "GPU PM: ungating BG3D via clr register\n");
+				writel(BIT(0), mfg_top + 0x8); /* clr_ofs = 0x8 */
+				sta = readl(mfg_top + 0x0);
+				dev_info(kbdev->dev, "GPU PM: mfg_top_config sta after ungate=0x%08x\n", sta);
+			}
+			iounmap(mfg_top);
+		}
+	}
 
 	gpu_dvfs_status_footprint(GPU_DVFS_STATUS_STEP_2);
 

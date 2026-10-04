@@ -594,6 +594,9 @@ int gpufreq_get_opp_num(enum gpufreq_target target)
 	else
 		GPUFREQ_LOGE("null gpufreq shared memory (ENOENT)");
 
+	if (opp_num < 0 || opp_num > GPUFREQ_MAX_OPP_NUM)
+		opp_num = 0;
+
 done:
 	return opp_num;
 }
@@ -1908,8 +1911,8 @@ static int gpufreq_shared_memory_init(void)
 	g_shared_mem_pa = gpufreq_mem_pa;
 	g_shared_mem_size = gpufreq_mem_size;
 
-	/* Zero shared memory struct so opp counts and tables start cleanly without garbage */
-	memset((void *)gpufreq_mem_va, 0, max_t(size_t, (size_t)gpufreq_mem_size, sizeof(struct gpufreq_shared_status)));
+	/* Zero shared memory header (up to 0x400 bytes, stock size) without touching GPUEB tables */
+	memset((void *)gpufreq_mem_va, 0, min_t(size_t, (size_t)gpufreq_mem_size, 0x400));
 
 	GPUFREQ_LOGI("shared status memory: 0x%llx (phy_addr: 0x%llx, size: %u, used: %lu)",
 		(unsigned long long)g_shared_status, g_shared_mem_pa,

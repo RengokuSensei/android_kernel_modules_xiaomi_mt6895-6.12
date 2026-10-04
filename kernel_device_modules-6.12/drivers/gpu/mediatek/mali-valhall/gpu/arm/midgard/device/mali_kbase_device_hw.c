@@ -71,7 +71,26 @@ bool kbase_is_gpu_removed(struct kbase_device *kbdev)
 	u32 val;
 
 	val = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_ID));
-	dev_info(kbdev->dev, "kbase_is_gpu_removed: GPU_ID register read = 0x%08x\n", val);
+	if (val == 0) {
+		void __iomem *spm_base = ioremap(0x1c001000, 0x1000);
+		void __iomem *mfg_top_base = ioremap(0x13fbf000, 0x1000);
+		u32 mfg0 = 0, mfg1 = 0, xpu = 0, sta = 0;
+
+		if (spm_base) {
+			mfg0 = readl(spm_base + 0xeb8);
+			mfg1 = readl(spm_base + 0xebc);
+			xpu = readl(spm_base + 0xf3c);
+			iounmap(spm_base);
+		}
+		if (mfg_top_base) {
+			sta = readl(mfg_top_base + 0x0);
+			iounmap(mfg_top_base);
+		}
+		dev_err(kbdev->dev, "kbase_is_gpu_removed: GPU_ID=0! DIAG: SPM MFG0=0x%08x MFG1=0x%08x XPU=0x%08x, MFGCFG sta=0x%08x (bit0 %s), nr_clocks=%d\n",
+			mfg0, mfg1, xpu, sta, (sta & 1) ? "GATED" : "UNGATED", kbdev->nr_clocks);
+	} else {
+		dev_info(kbdev->dev, "kbase_is_gpu_removed: GPU_ID register read = 0x%08x (valid)\n", val);
+	}
 
 	return val == 0;
 }

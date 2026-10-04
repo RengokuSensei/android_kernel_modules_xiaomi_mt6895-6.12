@@ -10152,6 +10152,14 @@
 			"JOB",
 			"EVENT",
 			"PWR";
+		clocks =
+			<&topckgen_clk CLK_TOP_MFG_SEL_0_CK>,
+			<&topckgen_clk CLK_TOP_MFG_SEL_1_CK>,
+			<&mfg_top_config_clk CLK_MFGCFG_BG3D>;
+		clock-names =
+			"mfg_sel_0",
+			"mfg_sel_1",
+			"mfgcfg_bg3d";
 		protected-memory-allocator = <&gpu_protected_memory_allocator>;
 		operating-points-v2 = <&gpu_mali_opp>;
 		#cooling-cells = <2>;
