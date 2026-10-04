@@ -95,10 +95,12 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 
 	/* on,off/ SWCG(BG3D)/ MTCMOS/ BUCK */
 #if defined(CONFIG_MTK_GPUFREQ_V2)
+	dev_info(kbdev->dev, "GPU PM Callback - Calling gpufreq_power_control(GPU_PWR_ON)\n");
 	if (gpufreq_power_control(GPU_PWR_ON) < 0) {
 		dev_info(kbdev->dev, "GPU PM Callback - Power On Failed");
 		return 1;
 	}
+	dev_info(kbdev->dev, "GPU PM Callback - Power On Successful\n");
 #endif /* CONFIG_MTK_GPUFREQ_V2 */
 
 	gpu_dvfs_status_footprint(GPU_DVFS_STATUS_STEP_2);

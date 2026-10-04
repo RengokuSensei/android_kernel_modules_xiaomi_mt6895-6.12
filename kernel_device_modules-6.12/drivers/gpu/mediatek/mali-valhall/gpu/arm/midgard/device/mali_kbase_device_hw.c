@@ -71,6 +71,7 @@ bool kbase_is_gpu_removed(struct kbase_device *kbdev)
 	u32 val;
 
 	val = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_ID));
+	dev_info(kbdev->dev, "kbase_is_gpu_removed: GPU_ID register read = 0x%08x\n", val);
 
 	return val == 0;
 }
