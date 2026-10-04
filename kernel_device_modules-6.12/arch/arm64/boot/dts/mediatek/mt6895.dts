@@ -10161,6 +10161,7 @@
 			"mfg_sel_1",
 			"mfgcfg_bg3d";
 		protected-memory-allocator = <&gpu_protected_memory_allocator>;
+		power-domains = <&scpsys MT6895_POWER_DOMAIN_MFG1>;
 		operating-points-v2 = <&gpu_mali_opp>;
 		#cooling-cells = <2>;
 		ged-supply = <&ged>;

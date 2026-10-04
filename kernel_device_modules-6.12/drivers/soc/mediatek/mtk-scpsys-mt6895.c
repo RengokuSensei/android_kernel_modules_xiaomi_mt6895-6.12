@@ -589,7 +589,7 @@ static const struct scp_domain_data scp_domain_data_mt6895[] = {
 			BUS_PROT_IGN(IFR_TYPE, 0x0C74, 0x0C78, 0x0C70, 0x0C7C,
 				MT6895_TOP_AXI_PROT_EN_EMISYS1_MFG1),
 		},
-		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_BYPASS_INIT_ON,
+		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_ALWAYS_ON,
 	},
 	[MT6895_POWER_DOMAIN_MFG2] = {
 		.name = "mfg2",
@@ -597,7 +597,7 @@ static const struct scp_domain_data scp_domain_data_mt6895[] = {
 		.ctl_offs = 0xEC0,
 		.sram_pdn_bits = GENMASK(8, 8),
 		.sram_pdn_ack_bits = GENMASK(12, 12),
-		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_BYPASS_INIT_ON,
+		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_ALWAYS_ON,
 	},
 	[MT6895_POWER_DOMAIN_MFG3] = {
 		.name = "mfg3",
@@ -605,7 +605,7 @@ static const struct scp_domain_data scp_domain_data_mt6895[] = {
 		.ctl_offs = 0xEC4,
 		.sram_pdn_bits = GENMASK(8, 8),
 		.sram_pdn_ack_bits = GENMASK(12, 12),
-		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_BYPASS_INIT_ON,
+		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_ALWAYS_ON,
 	},
 	[MT6895_POWER_DOMAIN_MFG4] = {
 		.name = "mfg4",
@@ -613,7 +613,7 @@ static const struct scp_domain_data scp_domain_data_mt6895[] = {
 		.ctl_offs = 0xEC8,
 		.sram_pdn_bits = GENMASK(8, 8),
 		.sram_pdn_ack_bits = GENMASK(12, 12),
-		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_BYPASS_INIT_ON,
+		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_ALWAYS_ON,
 	},
 	[MT6895_POWER_DOMAIN_MFG5] = {
 		.name = "mfg5",
@@ -621,7 +621,7 @@ static const struct scp_domain_data scp_domain_data_mt6895[] = {
 		.ctl_offs = 0xECC,
 		.sram_pdn_bits = GENMASK(8, 8),
 		.sram_pdn_ack_bits = GENMASK(12, 12),
-		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_BYPASS_INIT_ON,
+		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_ALWAYS_ON,
 	},
 	[MT6895_POWER_DOMAIN_MFG6] = {
 		.name = "mfg6",
@@ -629,7 +629,7 @@ static const struct scp_domain_data scp_domain_data_mt6895[] = {
 		.ctl_offs = 0xED0,
 		.sram_pdn_bits = GENMASK(8, 8),
 		.sram_pdn_ack_bits = GENMASK(12, 12),
-		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_BYPASS_INIT_ON,
+		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_ALWAYS_ON,
 	},
 	[MT6895_POWER_DOMAIN_MFG7] = {
 		.name = "mfg7",
@@ -637,7 +637,7 @@ static const struct scp_domain_data scp_domain_data_mt6895[] = {
 		.ctl_offs = 0xED4,
 		.sram_pdn_bits = GENMASK(8, 8),
 		.sram_pdn_ack_bits = GENMASK(12, 12),
-		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_BYPASS_INIT_ON,
+		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_ALWAYS_ON,
 	},
 	[MT6895_POWER_DOMAIN_MFG8] = {
 		.name = "mfg8",
@@ -645,7 +645,7 @@ static const struct scp_domain_data scp_domain_data_mt6895[] = {
 		.ctl_offs = 0xED8,
 		.sram_pdn_bits = GENMASK(8, 8),
 		.sram_pdn_ack_bits = GENMASK(12, 12),
-		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_BYPASS_INIT_ON,
+		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_ALWAYS_ON,
 	},
 	[MT6895_POWER_DOMAIN_MFG9] = {
 		.name = "mfg9",
@@ -653,7 +653,7 @@ static const struct scp_domain_data scp_domain_data_mt6895[] = {
 		.ctl_offs = 0xEDC,
 		.sram_pdn_bits = GENMASK(8, 8),
 		.sram_pdn_ack_bits = GENMASK(12, 12),
-		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_BYPASS_INIT_ON,
+		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_ALWAYS_ON,
 	},
 	[MT6895_POWER_DOMAIN_MFG10] = {
 		.name = "mfg10",
@@ -661,7 +661,7 @@ static const struct scp_domain_data scp_domain_data_mt6895[] = {
 		.ctl_offs = 0xEE0,
 		.sram_pdn_bits = GENMASK(8, 8),
 		.sram_pdn_ack_bits = GENMASK(12, 12),
-		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_BYPASS_INIT_ON,
+		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_ALWAYS_ON,
 	},
 	[MT6895_POWER_DOMAIN_MFG11] = {
 		.name = "mfg11",
@@ -669,7 +669,7 @@ static const struct scp_domain_data scp_domain_data_mt6895[] = {
 		.ctl_offs = 0xEE4,
 		.sram_pdn_bits = GENMASK(8, 8),
 		.sram_pdn_ack_bits = GENMASK(12, 12),
-		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_BYPASS_INIT_ON,
+		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_ALWAYS_ON,
 	},
 	[MT6895_POWER_DOMAIN_MFG12] = {
 		.name = "mfg12",
@@ -677,7 +677,7 @@ static const struct scp_domain_data scp_domain_data_mt6895[] = {
 		.ctl_offs = 0xEE8,
 		.sram_pdn_bits = GENMASK(8, 8),
 		.sram_pdn_ack_bits = GENMASK(12, 12),
-		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_BYPASS_INIT_ON,
+		.caps = MTK_SCPD_IS_PWR_CON_ON | MTK_SCPD_ALWAYS_ON,
 	},
 	[MT6895_POWER_DOMAIN_APU] = {
 		.name = "apu",
