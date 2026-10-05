@@ -160,7 +160,7 @@
 	/* chosen */
 	chosen: chosen {
 		bootargs = "console=tty0 root=/dev/ram \
-                        8250.nr_uarts=4 \
+                        8250.nr_uarts=4 clk_ignore_unused \
 			rcupdate.rcu_expedited=1 rcu_nocbs=0-7 \
 			transparent_hugepage=never swiotlb=noforce \
 			firmware_class.path=/vendor/firmware fenrir=true";
@@ -10132,9 +10132,13 @@
 		reg = <0 0x13c40000 0 0x22000>;
 		reg-names = "gpueb_base";
 		gpr-offset = <0x1FD1C>;
+		gpr_offset = <0x1FD1C>;
 		gpr-id = <6>;
+		gpr_id = <6>;
 		gmpu-table-size = <0x00400000>;
+		gmpu_table_size = <0x00400000>;
 		protected-reserve-size = <0x1000000>;
+		protected_reserve_size = <0x1000000>;
 	};
 
 	mali: mali@13000000 {
