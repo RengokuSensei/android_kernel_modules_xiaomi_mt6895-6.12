@@ -648,32 +648,46 @@ static int mtk_protected_memory_allocator_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	of_property_read_u32(np, "gpr_offset", &gpr_offset);
+	if (of_property_read_u32(np, "gpr_offset", &gpr_offset))
+		of_property_read_u32(np, "gpr-offset", &gpr_offset);
 
-	if(!gpr_offset) {
+	if (!gpr_offset) {
 		dev_err(&pdev->dev, "can't have GPR offset access\n");
 		return -ENODEV;
 	}
 
-	of_property_read_u32(np, "gpr_id", &gpr_id);
-	of_property_read_u32(np, "gmpu_table_size", &gmpu_table_size);
+	if (of_property_read_u32(np, "gpr_id", &gpr_id))
+		of_property_read_u32(np, "gpr-id", &gpr_id);
+
+	if (of_property_read_u32(np, "gmpu_table_size", &gmpu_table_size))
+		of_property_read_u32(np, "gmpu-table-size", &gmpu_table_size);
 
 	dev_info(&pdev->dev,
 		"Using on addr(base + %x, %d), shift +%u\n",
                  gpr_offset, gpr_id, gmpu_table_size);
 
-	of_property_read_u32(np, "protected_reserve_size", &psize);
+	if (of_property_read_u32(np, "protected_reserve_size", &psize))
+		of_property_read_u32(np, "protected-reserve-size", &psize);
 
-	if(!psize) {
+	if (!psize) {
 		dev_err(&pdev->dev, "can't find reserved-memory\n");
 		return -ENODEV;
 	}
 
+	dev_info(&pdev->dev, "mtk_pma: remapping gpueb_base (%pa, size 0x%llx)...\n",
+		 &res->start, (unsigned long long)resource_size(res));
 	gpueb_base = devm_ioremap(&pdev->dev, res->start, resource_size(res));
+	if (!gpueb_base) {
+		dev_err(&pdev->dev, "failed to ioremap gpueb_base\n");
+		return -ENOMEM;
+	}
 	GPR_target = GPR(gpueb_base + gpr_offset, gpr_id);
 
+	dev_info(&pdev->dev, "mtk_pma: reading GPR register (offset 0x%x, id %d)...\n",
+		 gpr_offset, gpr_id);
 	/* Note GPR is 32 bits */
 	GPR_target_64 = *(uint32_t*)GPR_target;
+	dev_info(&pdev->dev, "mtk_pma: GPR raw value read: 0x%llx\n", GPR_target_64);
 	rmem_base = (GPR_target_64 << PAGE_SHIFT) + gmpu_table_size;
 	rmem_size = psize; // at least 256KB
 	rmem_size = rmem_size >> PAGE_SHIFT;

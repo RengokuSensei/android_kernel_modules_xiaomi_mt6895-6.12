@@ -10132,10 +10132,13 @@
 		reg = <0 0x13c40000 0 0x22000>;
 		reg-names = "gpueb_base";
 		gpr-offset = <0x1FD1C>;
+		gpr_offset = <0x1FD1C>;
 		gpr-id = <6>;
+		gpr_id = <6>;
 		gmpu-table-size = <0x00400000>;
+		gmpu_table_size = <0x00400000>;
 		protected-reserve-size = <0x1000000>;
-		status = "disabled";
+		protected_reserve_size = <0x1000000>;
 	};
 
 	mali: mali@13000000 {
@@ -10161,6 +10164,7 @@
 			"mfg_sel_0",
 			"mfg_sel_1",
 			"mfgcfg_bg3d";
+		protected-memory-allocator = <&gpu_protected_memory_allocator>;
 		power-domains = <&scpsys MT6895_POWER_DOMAIN_MFG1>;
 		operating-points-v2 = <&gpu_mali_opp>;
 		#cooling-cells = <2>;

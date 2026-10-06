@@ -41,17 +41,16 @@ int kbase_csf_protected_memory_init(struct kbase_device *const kbdev)
 
 		kbdev->csf.pma_dev = NULL;
 		if (!pdev) {
-			dev_warn(kbdev->dev, "Platform device for Protected memory allocator not found; proceeding without protected memory\n");
-			err = 0;
+			dev_err(kbdev->dev, "Platform device for Protected memory allocator not found\n");
+			err = -EPROBE_DEFER;
 		} else {
 			kbdev->csf.pma_dev = platform_get_drvdata(pdev);
 			if (!kbdev->csf.pma_dev) {
-				dev_warn(kbdev->dev, "Protected memory allocator is not ready; proceeding without protected memory\n");
-				err = 0;
+				dev_info(kbdev->dev, "Protected memory allocator is not ready\n");
+				err = -EPROBE_DEFER;
 			} else if (!try_module_get(kbdev->csf.pma_dev->owner)) {
-				dev_warn(kbdev->dev, "Failed to get Protected memory allocator module; proceeding without protected memory\n");
-				kbdev->csf.pma_dev = NULL;
-				err = 0;
+				dev_err(kbdev->dev, "Failed to get Protected memory allocator module\n");
+				err = -ENODEV;
 			} else {
 				dev_info(kbdev->dev, "Protected memory allocator successfully loaded\n");
 			}

@@ -28,6 +28,7 @@
 #include <mali_kbase_reset_gpu.h>
 #include <csf/mali_kbase_csf.h>
 #include <csf/ipa_control/mali_kbase_csf_ipa_control.h>
+#include <linux/delay.h>
 
 
 #include <mali_kbase.h>
@@ -70,18 +71,24 @@ static int kbase_backend_late_init(struct kbase_device *kbdev)
 {
 	int err;
 
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: late_init: calling kbase_hwaccess_pm_init...\n");
 	err = kbase_hwaccess_pm_init(kbdev);
 	if (err)
 		return err;
 
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: late_init: calling kbase_reset_gpu_init...\n");
+	msleep(100);
 	err = kbase_reset_gpu_init(kbdev);
 	if (err)
 		goto fail_reset_gpu_init;
 
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: late_init: calling kbase_hwaccess_pm_powerup...\n");
+	msleep(100);
 	err = kbase_hwaccess_pm_powerup(kbdev, PM_HW_ISSUES_DETECT);
 	if (err)
 		goto fail_pm_powerup;
 
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: late_init: calling kbase_backend_timer_init...\n");
 	err = kbase_backend_timer_init(kbdev);
 	if (err)
 		goto fail_timer;
@@ -112,20 +119,26 @@ static int kbase_backend_late_init(struct kbase_device *kbdev)
 	 * coherence with the backend power management, hence needs to be
 	 * placed before the kbase_pm_context_idle().
 	 */
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: late_init: calling kbase_backend_devfreq_init...\n");
+	msleep(100);
 	err = kbase_backend_devfreq_init(kbdev);
 	if (err)
 		goto fail_devfreq_init;
 
 	/* Update gpuprops with L2_FEATURES if applicable */
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: late_init: calling kbase_gpuprops_update_l2_features...\n");
 	err = kbase_gpuprops_update_l2_features(kbdev);
 	if (err)
 		goto fail_update_l2_features;
 
 	init_waitqueue_head(&kbdev->hwaccess.backend.reset_wait);
 
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: late_init: calling kbase_pm_context_idle...\n");
+	msleep(100);
 	kbase_pm_context_idle(kbdev);
 
 	mutex_init(&kbdev->fw_load_lock);
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: late_init completed successfully\n");
 
 	return 0;
 

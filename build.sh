@@ -503,6 +503,13 @@ for line in lines:
         add = [d for d in extra if d not in deps.split()]
         if add:
             line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
+    # mali_prot_alloc.ko must load after mtk_gpueb and ged
+    if line.startswith('mali_prot_alloc.ko:'):
+        deps = line.rstrip('\n').split(':', 1)[1]
+        extra = ['mtk_gpueb.ko', 'ged.ko']
+        add = [d for d in extra if d not in deps.split()]
+        if add:
+            line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
     # mali_kbase_mt6895.ko must load after memory allocators, ged and mfgcfg clock driver
     if line.startswith('mali_kbase_mt6895.ko:'):
         deps = line.rstrip('\n').split(':', 1)[1]
@@ -583,9 +590,15 @@ PYEOF
     # extcon-mtk-usb resolves mtu3's role switch via usb_role_switch_get()
     # in probe and fails with 'failed to get usb role' if mtu3 has not
     # registered it yet (2026-08-11 real device).
+    #
+    # Run 67: Exclude mali_kbase_mt6895 and mali_prot_alloc from modules.load
+    # so neither auto-loads at early boot. This guarantees a stable boot to the
+    # MI logo with live root ADB, allowing controlled insmod testing via adb shell.
     python3 - <<'PYEOF' > modules.load.tmp
 import sys
 mods = [l.strip() for l in open('modules.load') if l.strip()]
+exclude = {'mali_kbase_mt6895', 'mali_prot_alloc', 'mali_kbase_mt6895.ko', 'mali_prot_alloc.ko'}
+mods = [m for m in mods if m not in exclude and m.removesuffix('.ko') not in exclude]
 present = [m for m in ['xhci-mtk-hcd-v2'] if m in mods]
 rest = [m for m in mods if m not in present]
 try:

@@ -2684,6 +2684,9 @@ static int kbase_pm_do_reset(struct kbase_device *kbdev)
 
 	KBASE_TLSTREAM_JD_GPU_SOFT_RESET(kbdev, kbdev);
 
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: triggering GPU soft reset...\n");
+	msleep(100);
+
 	if (kbdev->pm.backend.callback_soft_reset) {
 		ret = kbdev->pm.backend.callback_soft_reset(kbdev);
 		if (ret < 0)
@@ -2694,6 +2697,9 @@ static int kbase_pm_do_reset(struct kbase_device *kbdev)
 		kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_COMMAND),
 				GPU_COMMAND_SOFT_RESET);
 	}
+
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: soft reset issued, unmasking RESET_COMPLETED...\n");
+	msleep(100);
 
 	/* Unmask the reset complete interrupt only */
 	kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK), RESET_COMPLETED);
@@ -2709,6 +2715,9 @@ static int kbase_pm_do_reset(struct kbase_device *kbdev)
 	hrtimer_start(&rtdata.timer, HR_TIMER_DELAY_MSEC(RESET_TIMEOUT),
 							HRTIMER_MODE_REL);
 
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: waiting for reset completion interrupt...\n");
+	msleep(100);
+
 	/* Wait for the RESET_COMPLETED interrupt to be raised */
 	kbase_pm_wait_for_reset(kbdev);
 
@@ -2719,7 +2728,7 @@ static int kbase_pm_do_reset(struct kbase_device *kbdev)
 		/* GPU has been reset */
 		hrtimer_cancel(&rtdata.timer);
 		destroy_hrtimer_on_stack(&rtdata.timer);
-		dev_info(kbdev->dev, "GPU soft reset completed");
+		dev_info(kbdev->dev, "kbase [BREADCRUMB]: GPU soft reset completed successfully\n");
 #if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
 		ged_log_buf_print2(
 			kbdev->ged_log_buf_hnd_kbase, GED_LOG_ATTR_TIME,

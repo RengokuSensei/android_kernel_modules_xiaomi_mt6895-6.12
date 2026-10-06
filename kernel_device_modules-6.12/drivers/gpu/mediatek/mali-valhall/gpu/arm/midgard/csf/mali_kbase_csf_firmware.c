@@ -276,9 +276,14 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 
 static void boot_csf_firmware(struct kbase_device *kbdev)
 {
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: enabling CSF MCU...\n");
+	msleep(100);
 	kbase_csf_firmware_enable_mcu(kbdev);
 
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: waiting for CSF firmware boot...\n");
+	msleep(100);
 	wait_for_firmware_boot(kbdev);
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: CSF firmware boot completed successfully\n");
 }
 
 static void wait_ready(struct kbase_device *kbdev)
@@ -325,6 +330,8 @@ static void load_mmu_tables(struct kbase_device *kbdev)
 {
 	unsigned long irq_flags;
 
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: loading MMU tables into MCU AS...\n");
+	msleep(100);
 	mutex_lock(&kbdev->mmu_hw_mutex);
 	spin_lock_irqsave(&kbdev->hwaccess_lock, irq_flags);
 	kbase_mmu_update(kbdev, &kbdev->csf.mcu_mmu, MCU_AS_NR);
@@ -333,6 +340,7 @@ static void load_mmu_tables(struct kbase_device *kbdev)
 
 	/* Wait for a while for the update command to take effect */
 	wait_ready(kbdev);
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: MMU tables loaded into MCU AS\n");
 }
 
 /**
