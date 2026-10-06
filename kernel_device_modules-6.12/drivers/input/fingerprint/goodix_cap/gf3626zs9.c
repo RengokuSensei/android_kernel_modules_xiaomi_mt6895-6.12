@@ -583,6 +583,7 @@ static void gf_remove(struct spi_device *spi)
 
 static const struct of_device_id gf_of_match[] = {
 	{ .compatible = "goodix,goodix-fp" },
+	{ .compatible = "mediatek,goodix-fp" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, gf_of_match);
