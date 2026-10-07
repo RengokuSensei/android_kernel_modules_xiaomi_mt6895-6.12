@@ -343,7 +343,6 @@ static void boot_csf_firmware(struct kbase_device *kbdev)
 	dev_info(kbdev->dev, "kbase [BREADCRUMB]: waiting for CSF firmware boot...\n");
 	msleep(100);
 	wait_for_firmware_boot(kbdev);
-	dev_info(kbdev->dev, "kbase [BREADCRUMB]: CSF firmware boot completed successfully\n");
 }
 
 static void wait_ready(struct kbase_device *kbdev)

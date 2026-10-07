@@ -118,8 +118,9 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 		void __iomem *mfg_top = ioremap(0x13fbf000, 0x1000);
 		if (mfg_top) {
 			u32 sta = readl(mfg_top + 0x0);
-			dev_info(kbdev->dev, "GPU PM: mfg_top_config sta=0x%08x (BG3D bit0 %s)\n",
-				sta, (sta & 1) ? "GATED" : "UNGATED");
+			u32 qch = readl(mfg_top + 0xb4);
+			dev_info(kbdev->dev, "GPU PM: mfg_top_config sta=0x%08x (BG3D bit0 %s), QCHANNEL_CON=0x%08x\n",
+				sta, (sta & 1) ? "GATED" : "UNGATED", qch);
 			if (sta & 1) {
 				dev_info(kbdev->dev, "GPU PM: ungating BG3D via clr register\n");
 				writel(BIT(0), mfg_top + 0x8); /* clr_ofs = 0x8 */
@@ -127,6 +128,27 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 				dev_info(kbdev->dev, "GPU PM: mfg_top_config sta after ungate=0x%08x\n", sta);
 			}
 			iounmap(mfg_top);
+		}
+		void __iomem *infra = ioremap(0x10001000, 0x1000);
+		if (infra) {
+			u32 md0_en = readl(infra + 0xca0);
+			u32 md0_rdy = readl(infra + 0xcac);
+			u32 emi0_en = readl(infra + 0xc60);
+			u32 emi0_rdy = readl(infra + 0xc6c);
+			u32 emi1_en = readl(infra + 0xc70);
+			u32 emi1_rdy = readl(infra + 0xc7c);
+
+			dev_info(kbdev->dev, "GPU PM: INFRACFG MD0_MFG1 en=0x%08x rdy=0x%08x | EMISYS0 en=0x%08x rdy=0x%08x | EMISYS1 en=0x%08x rdy=0x%08x\n",
+				md0_en, md0_rdy, emi0_en, emi0_rdy, emi1_en, emi1_rdy);
+			iounmap(infra);
+		}
+		void __iomem *mfgrpc = ioremap(0x13f91000, 0x1000);
+		if (mfgrpc) {
+			u32 rpc_en = readl(mfgrpc + 0x40);
+			u32 rpc_rdy = readl(mfgrpc + 0x48);
+
+			dev_info(kbdev->dev, "GPU PM: MFGRPC en=0x%08x rdy=0x%08x\n", rpc_en, rpc_rdy);
+			iounmap(mfgrpc);
 		}
 	}
 

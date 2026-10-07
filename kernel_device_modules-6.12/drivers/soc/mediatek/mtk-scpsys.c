@@ -511,8 +511,11 @@ static int scpsys_bus_protect_disable(struct scp_domain *scpd, unsigned int inde
 		else
 			continue;
 
-		if (!map)
+		if (!map) {
+			if (scpd->data->name && !strcmp(scpd->data->name, "mfg1"))
+				pr_info("[SCPSYS MFG1] bp[%d] type %d regmap is NULL!\n", i, bp.type);
 			continue;
+		}
 
 		if (index != (MAX_STEPS - 1)) {
 			unsigned int val = 0, val2 = 0;
@@ -525,7 +528,20 @@ static int scpsys_bus_protect_disable(struct scp_domain *scpd, unsigned int inde
 			/* restore bus protect setting */
 			clear_bus_protection(map, &bp);
 		} else {
-			ret = clear_bus_protection(map, &bp);
+			if (scpd->data->name && !strcmp(scpd->data->name, "mfg1")) {
+				u32 before_en = 0, before_sta = 0, after_en = 0, after_sta = 0;
+
+				regmap_read(map, bp.en_ofs, &before_en);
+				regmap_read(map, bp.sta_ofs, &before_sta);
+				ret = clear_bus_protection(map, &bp);
+				regmap_read(map, bp.en_ofs, &after_en);
+				regmap_read(map, bp.sta_ofs, &after_sta);
+				pr_info("[SCPSYS MFG1] bp[%d] type=%d en_ofs=0x%04x sta_ofs=0x%04x mask=0x%08x: EN 0x%08x -> 0x%08x, STA 0x%08x -> 0x%08x (ret=%d)\n",
+					i, bp.type, bp.en_ofs, bp.sta_ofs, bp.mask,
+					before_en, after_en, before_sta, after_sta, ret);
+			} else {
+				ret = clear_bus_protection(map, &bp);
+			}
 
 			if (ret)
 				goto ERR;
