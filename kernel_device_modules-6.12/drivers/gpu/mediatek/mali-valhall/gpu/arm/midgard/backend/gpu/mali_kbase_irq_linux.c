@@ -78,6 +78,10 @@ static irqreturn_t kbase_job_irq_handler(int irq, void *data)
 		return IRQ_NONE;
 	}
 
+	if (val & JOB_IRQ_GLOBAL_IF) {
+		dev_info(kbdev->dev, "[CSF DIAG] JOB IRQ GLOBAL_IF received! irq=%d status=0x%08x\n", irq, val);
+	}
+
 	dev_vdbg(kbdev->dev, "%s: irq %d irqstatus 0x%x\n", __func__, irq, val);
 
 #if MALI_USE_CSF
@@ -160,7 +164,7 @@ static irqreturn_t kbase_mmu_irq_handler(int irq, void *data)
 		return IRQ_NONE;
 	}
 
-	dev_vdbg(kbdev->dev, "%s: irq %d irqstatus 0x%x\n", __func__, irq, val);
+	dev_err(kbdev->dev, "[CSF DIAG] MMU IRQ fired! irq=%d status=0x%08x\n", irq, val);
 
 	kbase_mmu_interrupt(kbdev, val);
 
@@ -195,7 +199,7 @@ static irqreturn_t kbase_gpu_irq_handler(int irq, void *data)
 	if (!val)
 		return IRQ_NONE;
 
-	dev_vdbg(kbdev->dev, "%s: irq %d irqstatus 0x%x\n", __func__, irq, val);
+	dev_info(kbdev->dev, "[CSF DIAG] GPU IRQ fired! irq=%d status=0x%08x\n", irq, val);
 
 	kbase_gpu_interrupt(kbdev, val);
 

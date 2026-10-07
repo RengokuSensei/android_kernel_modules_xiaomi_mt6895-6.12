@@ -254,15 +254,73 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 	const long wait_timeout =
 		kbase_csf_timeout_in_jiffies(csf_firmware_boot_timeout_ms);
 	long remaining;
+	int poll_i;
+	u32 fw_ver = 0;
+	u32 *shared_info = NULL;
 
-	/* Firmware will generate a global interface interrupt once booting
-	 * is complete
-	 */
+	if (kbdev->csf.shared_interface && kbdev->csf.shared_interface->kernel_map)
+		shared_info = kbdev->csf.shared_interface->kernel_map;
+
+	/* Direct memory polling loop with memory barriers alongside IRQ wait */
+	for (poll_i = 0; poll_i < 50; poll_i++) {
+		if (kbdev->csf.interrupt_received)
+			break;
+		if (shared_info) {
+			rmb();
+			fw_ver = READ_ONCE(shared_info[GLB_VERSION / 4]);
+			if (fw_ver != 0) {
+				dev_info(kbdev->dev,
+					"[CSF DIAG] Firmware booted! GLB_VERSION=0x%08x detected at poll %d ms (irq_received=%d)\n",
+					fw_ver, poll_i * 10, kbdev->csf.interrupt_received);
+				break;
+			}
+		}
+		msleep(10);
+	}
+
 	remaining = wait_event_timeout(kbdev->csf.event_wait,
 			kbdev->csf.interrupt_received == true, wait_timeout);
 
-	if (!remaining) {
-		dev_err(kbdev->dev, "Timed out waiting for fw boot completion");
+	if (shared_info) {
+		rmb();
+		fw_ver = READ_ONCE(shared_info[GLB_VERSION / 4]);
+	}
+
+	if (!remaining && !fw_ver) {
+		u32 job_raw = kbase_reg_read(kbdev, JOB_CONTROL_REG(JOB_IRQ_RAWSTAT));
+		u32 job_stat = kbase_reg_read(kbdev, JOB_CONTROL_REG(JOB_IRQ_STATUS));
+		u32 job_mask = kbase_reg_read(kbdev, JOB_CONTROL_REG(JOB_IRQ_MASK));
+		u32 gpu_raw = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT));
+		u32 gpu_stat = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_STATUS));
+		u32 gpu_status = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_STATUS));
+		u32 gpu_fault = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_FAULTSTATUS));
+		u32 mcu_ctrl = kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_CONTROL));
+		u32 mcu_stat = kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_STATUS));
+		u32 mmu_raw = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_RAWSTAT));
+		u32 mmu_stat = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_STATUS));
+		u32 mmu_mask = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_MASK));
+		u32 as_stat = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_STATUS));
+		u32 as_fault = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_FAULTSTATUS));
+		u32 as_addr_lo = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_FAULTADDRESS_LO));
+		u32 as_addr_hi = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_FAULTADDRESS_HI));
+		u32 l2_ready_lo = kbase_reg_read(kbdev, GPU_CONTROL_REG(L2_READY_LO));
+		u32 shader_ready_lo = kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_READY_LO));
+
+		dev_err(kbdev->dev, "Timed out waiting for fw boot completion\n");
+		dev_err(kbdev->dev, "[CSF DIAG] JOB_IRQ: RAW=0x%08x STAT=0x%08x MASK=0x%08x (GLOBAL_IF=%d)\n",
+			job_raw, job_stat, job_mask, !!(job_raw & JOB_IRQ_GLOBAL_IF));
+		dev_err(kbdev->dev, "[CSF DIAG] GPU_IRQ: RAW=0x%08x STAT=0x%08x STATUS=0x%08x FAULT=0x%08x\n",
+			gpu_raw, gpu_stat, gpu_status, gpu_fault);
+		dev_err(kbdev->dev, "[CSF DIAG] MCU: CTRL=0x%08x STAT=0x%08x L2_READY_LO=0x%08x SHADER_READY_LO=0x%08x\n",
+			mcu_ctrl, mcu_stat, l2_ready_lo, shader_ready_lo);
+		dev_err(kbdev->dev, "[CSF DIAG] MMU: RAW=0x%08x STAT=0x%08x MASK=0x%08x AS%d_STAT=0x%08x AS%d_FAULT=0x%08x FAULT_ADDR=0x%08x%08x\n",
+			mmu_raw, mmu_stat, mmu_mask, MCU_AS_NR, as_stat, MCU_AS_NR, as_fault, as_addr_hi, as_addr_lo);
+		if (shared_info) {
+			rmb();
+			dev_err(kbdev->dev, "[CSF DIAG] MEM: GLB_VERSION=0x%08x [0..3]=0x%08x 0x%08x 0x%08x 0x%08x\n",
+				READ_ONCE(shared_info[GLB_VERSION / 4]),
+				shared_info[0], shared_info[1], shared_info[2], shared_info[3]);
+		}
 #if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
 		if (!mtk_common_gpufreq_bringup()) {
 			gpufreq_dump_infra_status();
@@ -987,9 +1045,14 @@ static u32 get_firmware_version(struct kbase_device *kbdev)
 {
 	struct kbase_csf_firmware_interface *interface =
 		kbdev->csf.shared_interface;
-	u32 *shared_info = interface->kernel_map;
+	u32 *shared_info;
 
-	return shared_info[GLB_VERSION/4];
+	if (!interface || !interface->kernel_map)
+		return 0;
+
+	shared_info = interface->kernel_map;
+	rmb();
+	return READ_ONCE(shared_info[GLB_VERSION/4]);
 }
 
 static int parse_capabilities(struct kbase_device *kbdev)
@@ -1008,7 +1071,10 @@ static int parse_capabilities(struct kbase_device *kbdev)
 	 */
 	iface->version = get_firmware_version(kbdev);
 	if (!iface->version) {
-		dev_err(kbdev->dev, "Version check failed. Firmware may have failed to boot.");
+		dev_err(kbdev->dev, "Version check failed. Firmware may have failed to boot.\n");
+		dev_err(kbdev->dev, "[CSF DIAG] MCU_STATUS=0x%08x MCU_CONTROL=0x%08x\n",
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_STATUS)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_CONTROL)));
 		return -EINVAL;
 	}
 

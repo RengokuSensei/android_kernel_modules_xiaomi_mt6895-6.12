@@ -531,6 +531,11 @@ int assign_irqs(struct kbase_device *kbdev)
 					irq_specs[i].name, i, irq);
 				return irq;
 			}
+			dev_info(kbdev->dev, "[CSF DIAG] IRQ '%s' acquired by INDEX %d: virq=%d\n",
+				irq_specs[i].name, i, irq);
+		} else {
+			dev_info(kbdev->dev, "[CSF DIAG] IRQ '%s' acquired by NAME: virq=%d\n",
+				irq_specs[i].name, irq);
 		}
 
 		kbdev->irqs[irq_specs[i].tag].irq = irq;
