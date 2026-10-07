@@ -254,12 +254,14 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 	const long wait_timeout =
 		kbase_csf_timeout_in_jiffies(csf_firmware_boot_timeout_ms);
 	long remaining;
+	struct kbase_csf_firmware_interface *interface =
+		kbdev->csf.shared_interface;
 	int poll_i;
 	u32 fw_ver = 0;
 	u32 *shared_info = NULL;
 
-	if (kbdev->csf.shared_interface && kbdev->csf.shared_interface->kernel_map)
-		shared_info = kbdev->csf.shared_interface->kernel_map;
+	if (interface && interface->kernel_map)
+		shared_info = interface->kernel_map;
 
 	/* Direct memory polling loop with memory barriers alongside IRQ wait */
 	for (poll_i = 0; poll_i < 50; poll_i++) {
