@@ -10,6 +10,7 @@
 #include <linux/device.h>
 #include <linux/delay.h>
 #include <linux/spinlock.h>
+#include <linux/moduleparam.h>
 #include <mali_kbase.h>
 #include <mali_kbase_defs.h>
 #include <mali_kbase_config.h>
@@ -44,6 +45,9 @@ static inline void gpufreq_check_bus_idle(void)
 
 DEFINE_MUTEX(g_mfg_lock);
 static int g_cur_opp_idx;
+static bool mfg_qchannel_enable;
+module_param(mfg_qchannel_enable, bool, 0644);
+MODULE_PARM_DESC(mfg_qchannel_enable, "Enable MFG_ACTIVE_SEL bit0 in MFG_QCHANNEL_CON (0x13FBF0B4)");
 
 enum gpu_dvfs_status_step {
 	GPU_DVFS_STATUS_STEP_1 = 0x1,
@@ -118,9 +122,13 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 		void __iomem *mfg_top = ioremap(0x13fbf000, 0x1000);
 		if (mfg_top) {
 			u32 sta = readl(mfg_top + 0x0);
-			u32 qch = readl(mfg_top + 0xb4);
-			dev_info(kbdev->dev, "GPU PM: mfg_top_config sta=0x%08x (BG3D bit0 %s), QCHANNEL_CON=0x%08x\n",
-				sta, (sta & 1) ? "GATED" : "UNGATED", qch);
+			u32 qch_before = readl(mfg_top + 0xb4);
+			if (mfg_qchannel_enable) {
+				writel(qch_before | BIT(0), mfg_top + 0xb4);
+			}
+			u32 qch_after = readl(mfg_top + 0xb4);
+			dev_info(kbdev->dev, "GPU PM: mfg_top_config sta=0x%08x (BG3D bit0 %s), QCHANNEL_CON before=0x%08x after=0x%08x (mfg_qchannel_enable=%d)\n",
+				sta, (sta & 1) ? "GATED" : "UNGATED", qch_before, qch_after, mfg_qchannel_enable);
 			if (sta & 1) {
 				dev_info(kbdev->dev, "GPU PM: ungating BG3D via clr register\n");
 				writel(BIT(0), mfg_top + 0x8); /* clr_ofs = 0x8 */

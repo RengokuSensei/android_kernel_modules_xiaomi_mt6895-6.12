@@ -5500,14 +5500,12 @@ static int kbase_platform_device_probe(struct platform_device *pdev)
 #endif
 
 #if defined(CONFIG_MALI_MTK_GPU_BM_JM)
-		err = mtk_bandwith_resource_init(kbdev);
-		if (err)
-			pr_info("@%s: GPU BM init failed (JM)\n", __func__);
+		if (mtk_bandwith_resource_init(kbdev))
+			pr_info("@%s: GPU BM init failed (JM) (non-fatal)\n", __func__);
 #endif
 #if defined(CONFIG_MALI_MTK_GPU_BM_CSF)
-		err = mtk_bandwidth_resource_init();
-		if (err)
-			pr_info("@%s: GPU BM init failed (CSF)\n", __func__);
+		if (mtk_bandwidth_resource_init())
+			pr_info("@%s: GPU BM init failed (CSF) (non-fatal)\n", __func__);
 #endif
 
 #if MALI_USE_CSF
