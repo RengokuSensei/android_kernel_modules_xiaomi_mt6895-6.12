@@ -359,10 +359,15 @@ static void kbase_csf_dump_physical_addresses(struct kbase_device *kbdev)
 {
 	struct kbase_csf_firmware_interface *iface;
 	phys_addr_t pgd_pa = kbdev->csf.mcu_mmu.pgd;
+	u64 *pgd_virt = phys_to_virt(pgd_pa);
 
-	dev_info(kbdev->dev, "[CSF DIAG PA] MCU_MMU PGD phys=0x%llx (%s 4GB)\n",
+	dev_info(kbdev->dev, "[CSF DIAG PA] MCU_MMU PGD phys=0x%llx (%s 4GB) PGD[0]=0x%016llx\n",
 		 (unsigned long long)pgd_pa,
-		 ((u64)pgd_pa >= 0x100000000ULL) ? "ABOVE" : "BELOW");
+		 ((u64)pgd_pa >= 0x100000000ULL) ? "ABOVE" : "BELOW",
+		 pgd_virt ? (unsigned long long)READ_ONCE(pgd_virt[0]) : 0ULL);
+
+	dev_info(kbdev->dev, "[CSF DIAG MGM] MGM configured: %s\n",
+		 kbdev->mgm_dev ? "vendor/custom" : "none (native)");
 
 	list_for_each_entry(iface, &kbdev->csf.firmware_interfaces, node) {
 		u32 p_idx;
@@ -388,10 +393,16 @@ static void kbase_csf_dump_physical_addresses(struct kbase_device *kbdev)
 static void boot_csf_firmware(struct kbase_device *kbdev)
 {
 	u32 mmu_raw, mcu_ctrl, mcu_stat;
+	u32 coh_feat, coh_en;
 	int poll_i;
 	bool fault_logged = false;
 
 	kbase_csf_dump_physical_addresses(kbdev);
+
+	coh_feat = kbase_reg_read(kbdev, GPU_CONTROL_REG(COHERENCY_FEATURES));
+	coh_en = kbase_reg_read(kbdev, GPU_CONTROL_REG(COHERENCY_ENABLE));
+	dev_info(kbdev->dev, "[CSF DIAG COH] COHERENCY: FEAT=0x%08x EN=0x%08x sys_coh=%u\n",
+		 coh_feat, coh_en, kbdev->system_coherency);
 
 	dev_info(kbdev->dev, "kbase [BREADCRUMB]: enabling CSF MCU...\n");
 	msleep(100);
@@ -484,9 +495,17 @@ static void load_mmu_tables(struct kbase_device *kbdev)
 	as_stat = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_STATUS));
 	as_transtab_lo = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_TRANSTAB_LO));
 	as_transtab_hi = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_TRANSTAB_HI));
+	{
+		u32 as_mem_lo = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_MEMATTR_LO));
+		u32 as_mem_hi = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_MEMATTR_HI));
+		u32 as_cfg_lo = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_TRANSCFG_LO));
+		u32 as_cfg_hi = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_TRANSCFG_HI));
 
-	dev_info(kbdev->dev, "[CSF DIAG T0 - POST_LOAD_MMU] MMU_RAW=0x%08x AS0_STAT=0x%08x TRANSTAB=0x%08x%08x\n",
-		 mmu_raw_post, as_stat, as_transtab_hi, as_transtab_lo);
+		dev_info(kbdev->dev, "[CSF DIAG T0 - POST_LOAD_MMU] MMU_RAW=0x%08x AS0_STAT=0x%08x TRANSTAB=0x%08x%08x\n",
+			 mmu_raw_post, as_stat, as_transtab_hi, as_transtab_lo);
+		dev_info(kbdev->dev, "[CSF DIAG T0 - AS0_CONFIG] MEMATTR=0x%08x%08x TRANSCFG=0x%08x%08x\n",
+			 as_mem_hi, as_mem_lo, as_cfg_hi, as_cfg_lo);
+	}
 	dev_info(kbdev->dev, "kbase [BREADCRUMB]: MMU tables loaded into MCU AS\n");
 }
 
