@@ -506,6 +506,12 @@ static void load_mmu_tables(struct kbase_device *kbdev)
 		dev_info(kbdev->dev, "[CSF DIAG T0 - AS0_CONFIG] MEMATTR=0x%08x%08x TRANSCFG=0x%08x%08x\n",
 			 as_mem_hi, as_mem_lo, as_cfg_hi, as_cfg_lo);
 	}
+	if (mmu_raw_post != 0) {
+		kbase_reg_write(kbdev, MMU_REG(MMU_IRQ_CLEAR), 0xFFFFFFFF);
+		u32 mmu_raw_after_clear = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_RAWSTAT));
+		dev_info(kbdev->dev, "[CSF DIAG T0 - POST_CLEAR] MMU_RAW post_clear=0x%08x (was 0x%08x)\n",
+			 mmu_raw_after_clear, mmu_raw_post);
+	}
 	dev_info(kbdev->dev, "kbase [BREADCRUMB]: MMU tables loaded into MCU AS\n");
 }
 
@@ -2108,6 +2114,15 @@ int kbase_csf_firmware_init(struct kbase_device *kbdev)
 
 	/* Make sure L2 cache is powered up */
 	kbase_pm_wait_for_l2_powered(kbdev);
+
+	/* Sample MMU_IRQ_RAWSTAT before anything is done and test clear */
+	{
+		u32 mmu_raw_entry = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_RAWSTAT));
+		kbase_reg_write(kbdev, MMU_REG(MMU_IRQ_CLEAR), 0xFFFFFFFF);
+		u32 mmu_raw_entry_cleared = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_RAWSTAT));
+		dev_info(kbdev->dev, "[CSF DIAG ENTRY] MMU_RAW entry=0x%08x after MMU_IRQ_CLEAR=0x%08x\n",
+			 mmu_raw_entry, mmu_raw_entry_cleared);
+	}
 
 	/* Load the MMU tables into the selected address space */
 	load_mmu_tables(kbdev);

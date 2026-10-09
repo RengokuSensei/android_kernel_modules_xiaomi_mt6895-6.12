@@ -401,11 +401,18 @@ void kbase_mmu_hw_configure(struct kbase_device *kbdev, struct kbase_as *as)
 			current_setup->memattr,
 			transcfg);
 
+	u32 mmu_raw_before_cmd = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_RAWSTAT));
 	write_cmd(kbdev, as->number, AS_COMMAND_UPDATE);
+	u32 mmu_raw_after_cmd = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_RAWSTAT));
 #if MALI_USE_CSF
 	/* Wait for UPDATE command to complete */
 	wait_ready(kbdev, as->number);
+	u32 mmu_raw_after_wait = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_RAWSTAT));
+#else
+	u32 mmu_raw_after_wait = mmu_raw_after_cmd;
 #endif
+	dev_info(kbdev->dev, "[CSF DIAG UPDATE_TRACE] as=%d MMU_RAW: before_cmd=0x%08x after_cmd=0x%08x after_wait=0x%08x\n",
+		 as->number, mmu_raw_before_cmd, mmu_raw_after_cmd, mmu_raw_after_wait);
 }
 
 static int mmu_hw_do_operation(struct kbase_device *kbdev, struct kbase_as *as,
