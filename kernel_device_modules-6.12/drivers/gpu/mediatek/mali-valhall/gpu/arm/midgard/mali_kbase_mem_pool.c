@@ -43,6 +43,10 @@
 #define NOT_DIRTY false
 #define NOT_RECLAIMED false
 
+bool mali_force_dma32;
+module_param(mali_force_dma32, bool, 0644);
+MODULE_PARM_DESC(mali_force_dma32, "Force GPU memory allocations from ZONE_DMA32 (< 4GB)");
+
 /**
  * can_alloc_page() - Check if the current thread can allocate a physical page
  *
@@ -204,6 +208,9 @@ struct page *kbase_mem_alloc_page(struct kbase_mem_pool *pool)
 	struct device *const dev = kbdev->dev;
 	dma_addr_t dma_addr;
 	int i;
+
+	if (mali_force_dma32)
+		gfp |= __GFP_DMA32;
 
 	/* don't warn on higher order failures */
 	if (pool->order)

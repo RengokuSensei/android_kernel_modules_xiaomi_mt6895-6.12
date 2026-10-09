@@ -66,6 +66,9 @@ static struct page *kbase_native_mgm_alloc(
 	CSTD_UNUSED(mgm_dev);
 	CSTD_UNUSED(group_id);
 
+	if (mali_force_dma32)
+		gfp_mask |= __GFP_DMA32;
+
 #if IS_ENABLED(CONFIG_MTK_IOMMU_V2)
 	page = alloc_pages(gfp_mask, order);
 	if (page) {

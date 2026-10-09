@@ -292,36 +292,57 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 		u32 job_raw = kbase_reg_read(kbdev, JOB_CONTROL_REG(JOB_IRQ_RAWSTAT));
 		u32 job_stat = kbase_reg_read(kbdev, JOB_CONTROL_REG(JOB_IRQ_STATUS));
 		u32 job_mask = kbase_reg_read(kbdev, JOB_CONTROL_REG(JOB_IRQ_MASK));
+
 		u32 gpu_raw = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT));
 		u32 gpu_stat = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_STATUS));
+		u32 gpu_mask = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK));
 		u32 gpu_status = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_STATUS));
 		u32 gpu_fault = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_FAULTSTATUS));
+		u32 gpu_fault_lo = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_FAULTADDRESS_LO));
+		u32 gpu_fault_hi = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_FAULTADDRESS_HI));
 		u32 mcu_ctrl = kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_CONTROL));
 		u32 mcu_stat = kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_STATUS));
+		u32 l2_ready_lo = kbase_reg_read(kbdev, GPU_CONTROL_REG(L2_READY_LO));
+		u32 shader_ready_lo = kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_READY_LO));
+
 		u32 mmu_raw = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_RAWSTAT));
 		u32 mmu_stat = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_STATUS));
 		u32 mmu_mask = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_MASK));
+
+		u32 as_transtab_lo = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_TRANSTAB_LO));
+		u32 as_transtab_hi = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_TRANSTAB_HI));
+		u32 as_memattr_lo = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_MEMATTR_LO));
+		u32 as_memattr_hi = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_MEMATTR_HI));
 		u32 as_stat = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_STATUS));
+		u32 as_transcfg_lo = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_TRANSCFG_LO));
+		u32 as_transcfg_hi = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_TRANSCFG_HI));
 		u32 as_fault = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_FAULTSTATUS));
 		u32 as_addr_lo = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_FAULTADDRESS_LO));
 		u32 as_addr_hi = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_FAULTADDRESS_HI));
-		u32 l2_ready_lo = kbase_reg_read(kbdev, GPU_CONTROL_REG(L2_READY_LO));
-		u32 shader_ready_lo = kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_READY_LO));
+		u32 as_extra_lo = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_FAULTEXTRA_LO));
+		u32 as_extra_hi = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_FAULTEXTRA_HI));
 
 		dev_err(kbdev->dev, "Timed out waiting for fw boot completion\n");
 		dev_err(kbdev->dev, "[CSF DIAG] JOB_IRQ: RAW=0x%08x STAT=0x%08x MASK=0x%08x (GLOBAL_IF=%d)\n",
 			job_raw, job_stat, job_mask, !!(job_raw & JOB_IRQ_GLOBAL_IF));
-		dev_err(kbdev->dev, "[CSF DIAG] GPU_IRQ: RAW=0x%08x STAT=0x%08x STATUS=0x%08x FAULT=0x%08x\n",
-			gpu_raw, gpu_stat, gpu_status, gpu_fault);
+		dev_err(kbdev->dev, "[CSF DIAG] GPU_IRQ: RAW=0x%08x STAT=0x%08x MASK=0x%08x STATUS=0x%08x\n",
+			gpu_raw, gpu_stat, gpu_mask, gpu_status);
+		dev_err(kbdev->dev, "[CSF DIAG] GPU_FAULT: FAULTSTATUS=0x%08x FAULTADDR=0x%08x%08x\n",
+			gpu_fault, gpu_fault_hi, gpu_fault_lo);
 		dev_err(kbdev->dev, "[CSF DIAG] MCU: CTRL=0x%08x STAT=0x%08x L2_READY_LO=0x%08x SHADER_READY_LO=0x%08x\n",
 			mcu_ctrl, mcu_stat, l2_ready_lo, shader_ready_lo);
-		dev_err(kbdev->dev, "[CSF DIAG] MMU: RAW=0x%08x STAT=0x%08x MASK=0x%08x AS%d_STAT=0x%08x AS%d_FAULT=0x%08x FAULT_ADDR=0x%08x%08x\n",
-			mmu_raw, mmu_stat, mmu_mask, MCU_AS_NR, as_stat, MCU_AS_NR, as_fault, as_addr_hi, as_addr_lo);
+		dev_err(kbdev->dev, "[CSF DIAG] MMU: RAW=0x%08x STAT=0x%08x MASK=0x%08x\n",
+			mmu_raw, mmu_stat, mmu_mask);
+		dev_err(kbdev->dev, "[CSF DIAG] AS0 STATUS: STAT=0x%08x FAULTSTATUS=0x%08x FAULTADDR=0x%08x%08x FAULTEXTRA=0x%08x%08x\n",
+			as_stat, as_fault, as_addr_hi, as_addr_lo, as_extra_hi, as_extra_lo);
+		dev_err(kbdev->dev, "[CSF DIAG] AS0 CONFIG: TRANSTAB=0x%08x%08x MEMATTR=0x%08x%08x TRANSCFG=0x%08x%08x\n",
+			as_transtab_hi, as_transtab_lo, as_memattr_hi, as_memattr_lo, as_transcfg_hi, as_transcfg_lo);
 		if (shared_info) {
 			rmb();
-			dev_err(kbdev->dev, "[CSF DIAG] MEM: GLB_VERSION=0x%08x [0..3]=0x%08x 0x%08x 0x%08x 0x%08x\n",
+			dev_err(kbdev->dev, "[CSF DIAG] MEM: GLB_VERSION=0x%08x [0..7]=0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
 				READ_ONCE(shared_info[GLB_VERSION / 4]),
-				shared_info[0], shared_info[1], shared_info[2], shared_info[3]);
+				shared_info[0], shared_info[1], shared_info[2], shared_info[3],
+				shared_info[4], shared_info[5], shared_info[6], shared_info[7]);
 		}
 #if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
 		if (!mtk_common_gpufreq_bringup()) {
@@ -334,14 +355,70 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 	kbdev->csf.interrupt_received = false;
 }
 
+static void kbase_csf_dump_physical_addresses(struct kbase_device *kbdev)
+{
+	struct kbase_csf_firmware_interface *iface;
+	phys_addr_t pgd_pa = kbdev->csf.mcu_mmu.pgd;
+
+	dev_info(kbdev->dev, "[CSF DIAG PA] MCU_MMU PGD phys=0x%llx (%s 4GB)\n",
+		 (unsigned long long)pgd_pa,
+		 ((u64)pgd_pa >= 0x100000000ULL) ? "ABOVE" : "BELOW");
+
+	list_for_each_entry(iface, &kbdev->csf.firmware_interfaces, node) {
+		u32 p_idx;
+		phys_addr_t first_pa = 0, last_pa = 0;
+		bool has_above_4gb = false;
+
+		if (iface->phys && iface->num_pages > 0) {
+			first_pa = as_phys_addr_t(iface->phys[0]);
+			last_pa = as_phys_addr_t(iface->phys[iface->num_pages - 1]);
+			for (p_idx = 0; p_idx < iface->num_pages; p_idx++) {
+				if ((u64)as_phys_addr_t(iface->phys[p_idx]) >= 0x100000000ULL)
+					has_above_4gb = true;
+			}
+		}
+		dev_info(kbdev->dev, "[CSF DIAG PA] IFACE '%s': va=0x%08x pages=%u first_pa=0x%llx last_pa=0x%llx (%s 4GB)\n",
+			 iface->name ? iface->name : "unnamed",
+			 iface->virtual, iface->num_pages,
+			 (unsigned long long)first_pa, (unsigned long long)last_pa,
+			 has_above_4gb ? "HAS_ABOVE_4GB" : "ALL_BELOW_4GB");
+	}
+}
+
 static void boot_csf_firmware(struct kbase_device *kbdev)
 {
+	u32 mmu_raw, mcu_ctrl, mcu_stat;
+	int poll_i;
+	bool fault_logged = false;
+
+	kbase_csf_dump_physical_addresses(kbdev);
+
 	dev_info(kbdev->dev, "kbase [BREADCRUMB]: enabling CSF MCU...\n");
 	msleep(100);
 	kbase_csf_firmware_enable_mcu(kbdev);
 
+	mmu_raw = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_RAWSTAT));
+	mcu_ctrl = kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_CONTROL));
+	mcu_stat = kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_STATUS));
+	dev_info(kbdev->dev, "[CSF DIAG T1 - POST_ENABLE_MCU] MMU_RAW=0x%08x MCU_CTRL=0x%08x MCU_STAT=0x%08x\n",
+		 mmu_raw, mcu_ctrl, mcu_stat);
+
+	/* Temporal polling every 10ms for first 200ms */
+	for (poll_i = 1; poll_i <= 20; poll_i++) {
+		msleep(10);
+		mmu_raw = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_RAWSTAT));
+		mcu_stat = kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_STATUS));
+		if (mmu_raw != 0 && !fault_logged) {
+			dev_info(kbdev->dev, "[CSF DIAG T_POLL +%dms] BUS FAULT DETECTED! MMU_RAW=0x%08x MCU_STAT=0x%08x\n",
+				 poll_i * 10, mmu_raw, mcu_stat);
+			fault_logged = true;
+		}
+	}
+	if (!fault_logged)
+		dev_info(kbdev->dev, "[CSF DIAG T_POLL 200ms] No fault during first 200ms (MMU_RAW=0x%08x MCU_STAT=0x%08x)\n",
+			 mmu_raw, mcu_stat);
+
 	dev_info(kbdev->dev, "kbase [BREADCRUMB]: waiting for CSF firmware boot...\n");
-	msleep(100);
 	wait_for_firmware_boot(kbdev);
 }
 
@@ -388,8 +465,11 @@ static void unload_mmu_tables(struct kbase_device *kbdev)
 static void load_mmu_tables(struct kbase_device *kbdev)
 {
 	unsigned long irq_flags;
+	u32 mmu_raw_pre, mmu_raw_post;
+	u32 as_stat, as_transtab_lo, as_transtab_hi;
 
-	dev_info(kbdev->dev, "kbase [BREADCRUMB]: loading MMU tables into MCU AS...\n");
+	mmu_raw_pre = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_RAWSTAT));
+	dev_info(kbdev->dev, "kbase [BREADCRUMB]: loading MMU tables into MCU AS... (MMU_RAW_PRE=0x%08x)\n", mmu_raw_pre);
 	msleep(100);
 	mutex_lock(&kbdev->mmu_hw_mutex);
 	spin_lock_irqsave(&kbdev->hwaccess_lock, irq_flags);
@@ -399,6 +479,14 @@ static void load_mmu_tables(struct kbase_device *kbdev)
 
 	/* Wait for a while for the update command to take effect */
 	wait_ready(kbdev);
+
+	mmu_raw_post = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_RAWSTAT));
+	as_stat = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_STATUS));
+	as_transtab_lo = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_TRANSTAB_LO));
+	as_transtab_hi = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_TRANSTAB_HI));
+
+	dev_info(kbdev->dev, "[CSF DIAG T0 - POST_LOAD_MMU] MMU_RAW=0x%08x AS0_STAT=0x%08x TRANSTAB=0x%08x%08x\n",
+		 mmu_raw_post, as_stat, as_transtab_hi, as_transtab_lo);
 	dev_info(kbdev->dev, "kbase [BREADCRUMB]: MMU tables loaded into MCU AS\n");
 }
 
