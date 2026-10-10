@@ -70,12 +70,11 @@ static void mt6895_pdca_config(struct kbase_device *kbdev, bool power_on)
 	}
 
 	if (power_on) {
-		/* Step 1: Read-before-write logging */
+		/* Step 1: Read-before-write logging (physical stacks 0, 1, 4, 5 on MT6895) */
 		dev_info(kbdev->dev,
-			"[CSF PDC BEFORE] CG=0x%08x ST0=0x%08x ST1=0x%08x ST2=0x%08x ST4=0x%08x ST5=0x%08x ST6=0x%08x\n",
+			"[CSF PDC BEFORE] CG=0x%08x ST0=0x%08x ST1=0x%08x ST4=0x%08x ST5=0x%08x\n",
 			readl(mfg_top + 0x100), readl(mfg_top + 0x120), readl(mfg_top + 0x140),
-			readl(mfg_top + 0x118), readl(mfg_top + 0xC0),  readl(mfg_top + 0x98),
-			readl(mfg_top + 0x1C0));
+			readl(mfg_top + 0xC0),  readl(mfg_top + 0x98));
 
 		dev_info(kbdev->dev,
 			"[CSF PDC BEFORE SC0..5] 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
@@ -88,8 +87,8 @@ static void mt6895_pdca_config(struct kbase_device *kbdev, bool power_on)
 			readl(mfg_top + 0x44C), readl(mfg_top + 0x464), readl(mfg_top + 0x47C));
 
 		/* Step 2: Vendor sequence for PDCv2 power-on (__gpufreq_pdca_config) */
-		/* Shader cores 0..9 active_pwrctl_en (bit 0) */
-		for (i = 0; i < 10; i++) {
+		/* Shader cores 0..5 active_pwrctl_en (bit 0) - Mali-G610 MC6 has 6 cores */
+		for (i = 0; i < 6; i++) {
 			u32 ofs = 0x400 + i * 0x18;
 			writel(readl(mfg_top + ofs) | BIT(0), mfg_top + ofs);
 		}
@@ -97,26 +96,24 @@ static void mt6895_pdca_config(struct kbase_device *kbdev, bool power_on)
 		/* Clock gating active_pwrctl_en (bit 0) */
 		writel(readl(mfg_top + 0x100) | BIT(0), mfg_top + 0x100);
 
-		/* Shader stacks st0, st1, st2, st4, st5, st6 active_pwrctl_en (bit 0) */
+		/* Physical shader stacks st0, st1, st4, st5 active_pwrctl_en (bit 0) */
+		/* STACK_PRESENT = 0x33: stacks 0, 1, 4, 5 exist in silicon (st2/st6 omitted) */
 		writel(readl(mfg_top + 0x120) | BIT(0), mfg_top + 0x120);
 		writel(readl(mfg_top + 0x140) | BIT(0), mfg_top + 0x140);
-		writel(readl(mfg_top + 0x118) | BIT(0), mfg_top + 0x118);
 		writel(readl(mfg_top + 0xC0)  | BIT(0), mfg_top + 0xC0);
 		writel(readl(mfg_top + 0x98)  | BIT(0), mfg_top + 0x98);
-		writel(readl(mfg_top + 0x1C0) | BIT(0), mfg_top + 0x1C0);
 
-		/* Shader cores 0..9 active_pwrctl_rsv (bit 31) */
-		for (i = 0; i < 10; i++) {
+		/* Shader cores 0..5 active_pwrctl_rsv (bit 31) */
+		for (i = 0; i < 6; i++) {
 			u32 ofs = 0x404 + i * 0x18;
 			writel(readl(mfg_top + ofs) | BIT(31), mfg_top + ofs);
 		}
 
 		/* Step 3: Read-after-write logging */
 		dev_info(kbdev->dev,
-			"[CSF PDC AFTER] CG=0x%08x ST0=0x%08x ST1=0x%08x ST2=0x%08x ST4=0x%08x ST5=0x%08x ST6=0x%08x\n",
+			"[CSF PDC AFTER] CG=0x%08x ST0=0x%08x ST1=0x%08x ST4=0x%08x ST5=0x%08x\n",
 			readl(mfg_top + 0x100), readl(mfg_top + 0x120), readl(mfg_top + 0x140),
-			readl(mfg_top + 0x118), readl(mfg_top + 0xC0),  readl(mfg_top + 0x98),
-			readl(mfg_top + 0x1C0));
+			readl(mfg_top + 0xC0),  readl(mfg_top + 0x98));
 
 		dev_info(kbdev->dev,
 			"[CSF PDC AFTER SC0..5] 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
@@ -128,26 +125,11 @@ static void mt6895_pdca_config(struct kbase_device *kbdev, bool power_on)
 			readl(mfg_top + 0x404), readl(mfg_top + 0x41C), readl(mfg_top + 0x434),
 			readl(mfg_top + 0x44C), readl(mfg_top + 0x464), readl(mfg_top + 0x47C));
 	} else {
-		/* Power off: symmetrical clearing */
-		for (i = 0; i < 10; i++) {
-			u32 ofs = 0x400 + i * 0x18;
-			writel(readl(mfg_top + ofs) & ~BIT(0), mfg_top + ofs);
-		}
-
-		writel(readl(mfg_top + 0x100) & ~BIT(0), mfg_top + 0x100);
-		writel(readl(mfg_top + 0x120) & ~BIT(0), mfg_top + 0x120);
-		writel(readl(mfg_top + 0x140) & ~BIT(0), mfg_top + 0x140);
-		writel(readl(mfg_top + 0x118) & ~BIT(0), mfg_top + 0x118);
-		writel(readl(mfg_top + 0xC0)  & ~BIT(0), mfg_top + 0xC0);
-		writel(readl(mfg_top + 0x98)  & ~BIT(0), mfg_top + 0x98);
-		writel(readl(mfg_top + 0x1C0) & ~BIT(0), mfg_top + 0x1C0);
-
-		for (i = 0; i < 10; i++) {
-			u32 ofs = 0x404 + i * 0x18;
-			writel(readl(mfg_top + ofs) & ~BIT(31), mfg_top + ofs);
-		}
-
-		dev_info(kbdev->dev, "[CSF PDC] Symmetrically cleared PDCv2 active_pwrctl on power off\n");
+		/* Run 75: Do not clear PDCv2 active_pwrctl on power off.
+		 * Clearing it destabilizes subsequent power-on cycles causing L2 timeouts.
+		 * MTCMOS hardware manages core gating automatically while active.
+		 */
+		dev_info(kbdev->dev, "[CSF PDC] Preserving PDCv2 active_pwrctl on power off\n");
 	}
 
 	iounmap(mfg_top);
@@ -261,6 +243,15 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 
 			dev_info(kbdev->dev, "GPU PM: MFGRPC en=0x%08x rdy=0x%08x\n", rpc_en, rpc_rdy);
 			iounmap(mfgrpc);
+		}
+	}
+
+	/* Ensure Common Clock Framework enables mfgcfg_bg3d clock gate */
+	{
+		struct clk *bg3d_clk = devm_clk_get_optional(kbdev->dev, "mfgcfg_bg3d");
+		if (!IS_ERR_OR_NULL(bg3d_clk)) {
+			int clk_ret = clk_prepare_enable(bg3d_clk);
+			dev_info(kbdev->dev, "GPU PM: mfgcfg_bg3d clk_prepare_enable returned %d\n", clk_ret);
 		}
 	}
 

@@ -71,6 +71,40 @@ module_param(csf_firmware_boot_timeout_ms, uint, 0444);
 MODULE_PARM_DESC(csf_firmware_boot_timeout_ms,
 		 "Maximum time to wait for firmware to boot.");
 
+static bool mali_prepower_cores = false;
+module_param(mali_prepower_cores, bool, 0644);
+MODULE_PARM_DESC(mali_prepower_cores,
+		 "Pre-power STACK and SHADER cores before MCU enable (default 0).");
+
+static u32 s_pre_mcu_csum;
+static u32 s_pre_mcu_bytes;
+
+static u32 kbase_csf_calc_firmware_mem_checksum(struct kbase_device *kbdev, u32 *out_bytes)
+{
+	struct kbase_csf_firmware_interface *iface;
+	u32 csum = 0x12345678;
+	u32 total_bytes = 0;
+
+	list_for_each_entry(iface, &kbdev->csf.firmware_interfaces, node) {
+		u32 p;
+		for (p = 0; p < iface->num_pages; p++) {
+			struct page *page = as_page(iface->phys[p]);
+			if (page) {
+				u32 *words = kmap_atomic(page);
+				int w;
+				for (w = 0; w < (PAGE_SIZE / 4); w++) {
+					csum = (csum << 5) - csum + words[w];
+				}
+				kunmap_atomic(words);
+				total_bytes += PAGE_SIZE;
+			}
+		}
+	}
+	if (out_bytes)
+		*out_bytes = total_bytes;
+	return csum;
+}
+
 #ifdef CONFIG_MALI_DEBUG
 /* Makes Driver wait indefinitely for an acknowledgment for the different
  * requests it sends to firmware. Otherwise the timeouts interfere with the
@@ -267,6 +301,12 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 	for (poll_i = 0; poll_i < 50; poll_i++) {
 		if (kbdev->csf.interrupt_received)
 			break;
+		if ((poll_i % 5) == 0) {
+			dev_info(kbdev->dev, "[CSF DIAG POLL %dms] MCU_STAT=0x%08x MCU_CTRL=0x%08x\n",
+				 poll_i * 10,
+				 kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_STATUS)),
+				 kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_CONTROL)));
+		}
 		if (shared_info) {
 			rmb();
 			fw_ver = READ_ONCE(shared_info[GLB_VERSION / 4]);
@@ -338,12 +378,32 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 		dev_err(kbdev->dev, "[CSF DIAG] AS0 CONFIG: TRANSTAB=0x%08x%08x MEMATTR=0x%08x%08x TRANSCFG=0x%08x%08x\n",
 			as_transtab_hi, as_transtab_lo, as_memattr_hi, as_memattr_lo, as_transcfg_hi, as_transcfg_lo);
 		if (shared_info) {
+			u32 *out_block = shared_info + (0x3000 / 4);
 			rmb();
 			dev_err(kbdev->dev, "[CSF DIAG] MEM: GLB_VERSION=0x%08x [0..7]=0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
 				READ_ONCE(shared_info[GLB_VERSION / 4]),
 				shared_info[0], shared_info[1], shared_info[2], shared_info[3],
 				shared_info[4], shared_info[5], shared_info[6], shared_info[7]);
+			dev_err(kbdev->dev, "[CSF DIAG OUTPUT_BLOCK] [0..7]=0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x (GLB_HALT_STATUS=0x%08x)\n",
+				out_block[0], out_block[1], out_block[2], out_block[3],
+				out_block[4], out_block[5], out_block[6], out_block[7],
+				out_block[4]);
 		}
+
+		/* Claude Experiment: Compare firmware memory checksum after timeout */
+		{
+			u32 post_bytes = 0;
+			u32 post_csum = kbase_csf_calc_firmware_mem_checksum(kbdev, &post_bytes);
+			dev_err(kbdev->dev,
+				"[CSF SNAPSHOT POST] Checksum=0x%08x (PRE=0x%08x DELTA=%s across %u bytes)\n",
+				post_csum, s_pre_mcu_csum,
+				(post_csum != s_pre_mcu_csum) ? "CHANGED (MCU EXECUTED INSTRUCTIONS!)" : "IDENTICAL (MCU NEVER TOUCHED MEMORY!)",
+				post_bytes);
+		}
+
+		/* Dump firmware trace buffers ("fwlog", "benchmark") */
+		kbase_csf_firmware_trace_buffers_dump(kbdev);
+
 #if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
 		if (!mtk_common_gpufreq_bringup()) {
 			gpufreq_dump_infra_status();
@@ -424,6 +484,32 @@ static void boot_csf_firmware(struct kbase_device *kbdev)
 		dev_info(kbdev->dev,
 			"[CSF DIAG PWR] TRANS:   SHADER=0x%08x TILER=0x%08x L2=0x%08x\n",
 			sh_pwr, ti_pwr, l2_pwr);
+	}
+
+	/* Claude Experiment: Snapshot firmware writable pages before enabling MCU */
+	s_pre_mcu_csum = kbase_csf_calc_firmware_mem_checksum(kbdev, &s_pre_mcu_bytes);
+	dev_info(kbdev->dev,
+		"[CSF SNAPSHOT PRE] Firmware mem checksum=0x%08x across %u bytes\n",
+		s_pre_mcu_csum, s_pre_mcu_bytes);
+
+	/* Optional pre-power for STACK and SHADER cores (default disabled) */
+	if (mali_prepower_cores) {
+		u32 st_pres = kbase_reg_read(kbdev, GPU_CONTROL_REG(STACK_PRESENT_LO));
+		u32 sh_pres = kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_PRESENT_LO));
+		dev_info(kbdev->dev,
+			"[CSF DIAG PWR PRE] Pre-powering STACK=0x%08x SHADER=0x%08x before MCU boot...\n",
+			st_pres, sh_pres);
+		if (st_pres)
+			kbase_reg_write(kbdev, GPU_CONTROL_REG(STACK_PWRON_LO), st_pres);
+		if (sh_pres)
+			kbase_reg_write(kbdev, GPU_CONTROL_REG(SHADER_PWRON_LO), sh_pres);
+		msleep(10);
+		dev_info(kbdev->dev,
+			"[CSF DIAG PWR POST] READY: STACK=0x%08x SHADER=0x%08x TRANS: STACK=0x%08x SHADER=0x%08x\n",
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(STACK_READY_LO)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_READY_LO)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(STACK_PWRTRANS_LO)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_PWRTRANS_LO)));
 	}
 
 	dev_info(kbdev->dev, "kbase [BREADCRUMB]: enabling CSF MCU...\n");

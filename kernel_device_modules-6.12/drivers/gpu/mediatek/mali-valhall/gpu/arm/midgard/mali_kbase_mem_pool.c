@@ -43,7 +43,7 @@
 #define NOT_DIRTY false
 #define NOT_RECLAIMED false
 
-bool mali_force_dma32;
+bool mali_force_dma32 = true;
 module_param(mali_force_dma32, bool, 0644);
 MODULE_PARM_DESC(mali_force_dma32, "Force GPU memory allocations from ZONE_DMA32 (< 4GB)");
 

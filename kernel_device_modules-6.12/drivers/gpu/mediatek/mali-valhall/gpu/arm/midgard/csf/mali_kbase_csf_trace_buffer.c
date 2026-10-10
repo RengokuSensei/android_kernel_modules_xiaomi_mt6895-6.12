@@ -126,8 +126,8 @@ trace_buffer_data[] = {
 #ifndef MALI_KBASE_BUILD
 	{ "fwutf", {0}, 1 },
 #endif
-	{ FW_TRACE_BUF_NAME, {0}, 4 },
-	{ "benchmark", {0}, 2 },
+	{ FW_TRACE_BUF_NAME, { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff }, 16 },
+	{ "benchmark", { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff }, 4 },
 	{ "timeline",  {0}, KBASE_CSF_TL_BUFFER_NR_PAGES },
 };
 
@@ -512,6 +512,37 @@ unsigned int kbase_csf_firmware_trace_buffer_read_data(
 	return bytes_copied;
 }
 EXPORT_SYMBOL(kbase_csf_firmware_trace_buffer_read_data);
+
+void kbase_csf_firmware_trace_buffers_dump(struct kbase_device *kbdev)
+{
+	struct firmware_trace_buffer *tb;
+
+	if (list_empty(&kbdev->csf.firmware_trace_buffers.list)) {
+		dev_info(kbdev->dev, "[CSF FWLOG] No trace buffers registered\n");
+		return;
+	}
+
+	list_for_each_entry(tb, &kbdev->csf.firmware_trace_buffers.list, node) {
+		u32 insert = 0, extract = 0;
+		u8 *buf = tb->data_mapping.cpu_addr;
+		u32 buf_size = tb->num_pages << PAGE_SHIFT;
+
+		if (tb->cpu_va.insert_cpu_va)
+			insert = READ_ONCE(*tb->cpu_va.insert_cpu_va);
+		if (tb->cpu_va.extract_cpu_va)
+			extract = READ_ONCE(*tb->cpu_va.extract_cpu_va);
+
+		dev_info(kbdev->dev, "[CSF FWLOG] Buffer '%s': insert=%u extract=%u size=%u cpu_addr=%px\n",
+			 tb->name, insert, extract, buf_size, buf);
+
+		if (buf && insert > 0) {
+			u32 dump_bytes = min_t(u32, insert, 512);
+			print_hex_dump(KERN_INFO, "[CSF FWLOG DATA] ", DUMP_PREFIX_OFFSET,
+				       16, 4, buf, dump_bytes, true);
+		}
+	}
+}
+EXPORT_SYMBOL(kbase_csf_firmware_trace_buffers_dump);
 
 #if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
 

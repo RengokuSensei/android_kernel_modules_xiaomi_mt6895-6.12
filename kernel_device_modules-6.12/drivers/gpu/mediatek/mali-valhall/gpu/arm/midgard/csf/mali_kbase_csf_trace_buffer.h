@@ -58,6 +58,13 @@ struct kbase_device;
 int kbase_csf_firmware_trace_buffers_init(struct kbase_device *kbdev);
 
 /**
+ * kbase_csf_firmware_trace_buffers_dump - Dump trace buffer contents to dmesg
+ *
+ * @kbdev: Device pointer
+ */
+void kbase_csf_firmware_trace_buffers_dump(struct kbase_device *kbdev);
+
+/**
  * kbase_csf_firmware_trace_buffer_term - Terminate trace buffers
  *
  * @kbdev: Device pointer
