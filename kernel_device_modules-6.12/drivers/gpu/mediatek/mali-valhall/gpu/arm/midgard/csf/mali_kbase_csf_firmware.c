@@ -366,9 +366,6 @@ static void kbase_csf_dump_physical_addresses(struct kbase_device *kbdev)
 		 ((u64)pgd_pa >= 0x100000000ULL) ? "ABOVE" : "BELOW",
 		 pgd_virt ? (unsigned long long)READ_ONCE(pgd_virt[0]) : 0ULL);
 
-	dev_info(kbdev->dev, "[CSF DIAG MGM] MGM configured: %s\n",
-		 kbdev->mgm_dev ? "vendor/custom" : "none (native)");
-
 	list_for_each_entry(iface, &kbdev->csf.firmware_interfaces, node) {
 		u32 p_idx;
 		phys_addr_t first_pa = 0, last_pa = 0;
@@ -403,6 +400,31 @@ static void boot_csf_firmware(struct kbase_device *kbdev)
 	coh_en = kbase_reg_read(kbdev, GPU_CONTROL_REG(COHERENCY_ENABLE));
 	dev_info(kbdev->dev, "[CSF DIAG COH] COHERENCY: FEAT=0x%08x EN=0x%08x sys_coh=%u\n",
 		 coh_feat, coh_en, kbdev->system_coherency);
+
+	/* Hardware Power State Diagnostic Dump */
+	{
+		u32 sh_pres = kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_PRESENT_LO));
+		u32 ti_pres = kbase_reg_read(kbdev, GPU_CONTROL_REG(TILER_PRESENT_LO));
+		u32 l2_pres = kbase_reg_read(kbdev, GPU_CONTROL_REG(L2_PRESENT_LO));
+		u32 st_pres = kbase_reg_read(kbdev, GPU_CONTROL_REG(STACK_PRESENT_LO));
+		u32 sh_rdy  = kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_READY_LO));
+		u32 ti_rdy  = kbase_reg_read(kbdev, GPU_CONTROL_REG(TILER_READY_LO));
+		u32 l2_rdy  = kbase_reg_read(kbdev, GPU_CONTROL_REG(L2_READY_LO));
+		u32 st_rdy  = kbase_reg_read(kbdev, GPU_CONTROL_REG(STACK_READY_LO));
+		u32 sh_pwr  = kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_PWRTRANS_LO));
+		u32 ti_pwr  = kbase_reg_read(kbdev, GPU_CONTROL_REG(TILER_PWRTRANS_LO));
+		u32 l2_pwr  = kbase_reg_read(kbdev, GPU_CONTROL_REG(L2_PWRTRANS_LO));
+
+		dev_info(kbdev->dev,
+			"[CSF DIAG PWR] PRESENT: SHADER=0x%08x TILER=0x%08x L2=0x%08x STACK=0x%08x\n",
+			sh_pres, ti_pres, l2_pres, st_pres);
+		dev_info(kbdev->dev,
+			"[CSF DIAG PWR] READY:   SHADER=0x%08x TILER=0x%08x L2=0x%08x STACK=0x%08x\n",
+			sh_rdy, ti_rdy, l2_rdy, st_rdy);
+		dev_info(kbdev->dev,
+			"[CSF DIAG PWR] TRANS:   SHADER=0x%08x TILER=0x%08x L2=0x%08x\n",
+			sh_pwr, ti_pwr, l2_pwr);
+	}
 
 	dev_info(kbdev->dev, "kbase [BREADCRUMB]: enabling CSF MCU...\n");
 	msleep(100);

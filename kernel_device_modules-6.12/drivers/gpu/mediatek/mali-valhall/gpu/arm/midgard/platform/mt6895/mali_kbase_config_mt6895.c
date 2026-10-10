@@ -49,6 +49,110 @@ static bool mfg_qchannel_enable;
 module_param(mfg_qchannel_enable, bool, 0644);
 MODULE_PARM_DESC(mfg_qchannel_enable, "Enable MFG_ACTIVE_SEL bit0 in MFG_QCHANNEL_CON (0x13FBF0B4)");
 
+static bool mali_enable_pdca = true;
+module_param(mali_enable_pdca, bool, 0644);
+MODULE_PARM_DESC(mali_enable_pdca, "Enable MediaTek PDCv2 active power control in MFG_TOP_CONFIG (0x13FBF000)");
+
+static void mt6895_pdca_config(struct kbase_device *kbdev, bool power_on)
+{
+	void __iomem *mfg_top;
+	int i;
+
+	if (!mali_enable_pdca) {
+		dev_info(kbdev->dev, "[CSF PDC] PDCv2 config skipped (mali_enable_pdca=0)\n");
+		return;
+	}
+
+	mfg_top = ioremap(0x13fbf000, 0x1000);
+	if (!mfg_top) {
+		dev_err(kbdev->dev, "[CSF PDC] Failed to ioremap MFG_TOP_CONFIG (0x13fbf000)\n");
+		return;
+	}
+
+	if (power_on) {
+		/* Step 1: Read-before-write logging */
+		dev_info(kbdev->dev,
+			"[CSF PDC BEFORE] CG=0x%08x ST0=0x%08x ST1=0x%08x ST2=0x%08x ST4=0x%08x ST5=0x%08x ST6=0x%08x\n",
+			readl(mfg_top + 0x100), readl(mfg_top + 0x120), readl(mfg_top + 0x140),
+			readl(mfg_top + 0x118), readl(mfg_top + 0xC0),  readl(mfg_top + 0x98),
+			readl(mfg_top + 0x1C0));
+
+		dev_info(kbdev->dev,
+			"[CSF PDC BEFORE SC0..5] 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
+			readl(mfg_top + 0x400), readl(mfg_top + 0x418), readl(mfg_top + 0x430),
+			readl(mfg_top + 0x448), readl(mfg_top + 0x460), readl(mfg_top + 0x478));
+
+		dev_info(kbdev->dev,
+			"[CSF PDC BEFORE RSV0..5] 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
+			readl(mfg_top + 0x404), readl(mfg_top + 0x41C), readl(mfg_top + 0x434),
+			readl(mfg_top + 0x44C), readl(mfg_top + 0x464), readl(mfg_top + 0x47C));
+
+		/* Step 2: Vendor sequence for PDCv2 power-on (__gpufreq_pdca_config) */
+		/* Shader cores 0..9 active_pwrctl_en (bit 0) */
+		for (i = 0; i < 10; i++) {
+			u32 ofs = 0x400 + i * 0x18;
+			writel(readl(mfg_top + ofs) | BIT(0), mfg_top + ofs);
+		}
+
+		/* Clock gating active_pwrctl_en (bit 0) */
+		writel(readl(mfg_top + 0x100) | BIT(0), mfg_top + 0x100);
+
+		/* Shader stacks st0, st1, st2, st4, st5, st6 active_pwrctl_en (bit 0) */
+		writel(readl(mfg_top + 0x120) | BIT(0), mfg_top + 0x120);
+		writel(readl(mfg_top + 0x140) | BIT(0), mfg_top + 0x140);
+		writel(readl(mfg_top + 0x118) | BIT(0), mfg_top + 0x118);
+		writel(readl(mfg_top + 0xC0)  | BIT(0), mfg_top + 0xC0);
+		writel(readl(mfg_top + 0x98)  | BIT(0), mfg_top + 0x98);
+		writel(readl(mfg_top + 0x1C0) | BIT(0), mfg_top + 0x1C0);
+
+		/* Shader cores 0..9 active_pwrctl_rsv (bit 31) */
+		for (i = 0; i < 10; i++) {
+			u32 ofs = 0x404 + i * 0x18;
+			writel(readl(mfg_top + ofs) | BIT(31), mfg_top + ofs);
+		}
+
+		/* Step 3: Read-after-write logging */
+		dev_info(kbdev->dev,
+			"[CSF PDC AFTER] CG=0x%08x ST0=0x%08x ST1=0x%08x ST2=0x%08x ST4=0x%08x ST5=0x%08x ST6=0x%08x\n",
+			readl(mfg_top + 0x100), readl(mfg_top + 0x120), readl(mfg_top + 0x140),
+			readl(mfg_top + 0x118), readl(mfg_top + 0xC0),  readl(mfg_top + 0x98),
+			readl(mfg_top + 0x1C0));
+
+		dev_info(kbdev->dev,
+			"[CSF PDC AFTER SC0..5] 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
+			readl(mfg_top + 0x400), readl(mfg_top + 0x418), readl(mfg_top + 0x430),
+			readl(mfg_top + 0x448), readl(mfg_top + 0x460), readl(mfg_top + 0x478));
+
+		dev_info(kbdev->dev,
+			"[CSF PDC AFTER RSV0..5] 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
+			readl(mfg_top + 0x404), readl(mfg_top + 0x41C), readl(mfg_top + 0x434),
+			readl(mfg_top + 0x44C), readl(mfg_top + 0x464), readl(mfg_top + 0x47C));
+	} else {
+		/* Power off: symmetrical clearing */
+		for (i = 0; i < 10; i++) {
+			u32 ofs = 0x400 + i * 0x18;
+			writel(readl(mfg_top + ofs) & ~BIT(0), mfg_top + ofs);
+		}
+
+		writel(readl(mfg_top + 0x100) & ~BIT(0), mfg_top + 0x100);
+		writel(readl(mfg_top + 0x120) & ~BIT(0), mfg_top + 0x120);
+		writel(readl(mfg_top + 0x140) & ~BIT(0), mfg_top + 0x140);
+		writel(readl(mfg_top + 0x118) & ~BIT(0), mfg_top + 0x118);
+		writel(readl(mfg_top + 0xC0)  & ~BIT(0), mfg_top + 0xC0);
+		writel(readl(mfg_top + 0x98)  & ~BIT(0), mfg_top + 0x98);
+		writel(readl(mfg_top + 0x1C0) & ~BIT(0), mfg_top + 0x1C0);
+
+		for (i = 0; i < 10; i++) {
+			u32 ofs = 0x404 + i * 0x18;
+			writel(readl(mfg_top + ofs) & ~BIT(31), mfg_top + ofs);
+		}
+
+		dev_info(kbdev->dev, "[CSF PDC] Symmetrically cleared PDCv2 active_pwrctl on power off\n");
+	}
+
+	iounmap(mfg_top);
+}
+
 enum gpu_dvfs_status_step {
 	GPU_DVFS_STATUS_STEP_1 = 0x1,
 	GPU_DVFS_STATUS_STEP_2 = 0x2,
@@ -160,6 +264,9 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 		}
 	}
 
+	/* Configure MediaTek PDCv2 for Mali hardware automatic MTCMOS power control */
+	mt6895_pdca_config(kbdev, true);
+
 	gpu_dvfs_status_footprint(GPU_DVFS_STATUS_STEP_2);
 
 #if defined(CONFIG_MTK_GPUFREQ_V2)
@@ -229,6 +336,9 @@ static void pm_callback_power_off_nolock(struct kbase_device *kbdev)
 		return;
 	}
 #endif /* CONFIG_MTK_GPUFREQ_V2 */
+
+	/* Clear MediaTek PDCv2 active power control on power down */
+	mt6895_pdca_config(kbdev, false);
 
 	gpu_dvfs_status_footprint(GPU_DVFS_STATUS_STEP_B);
 }
