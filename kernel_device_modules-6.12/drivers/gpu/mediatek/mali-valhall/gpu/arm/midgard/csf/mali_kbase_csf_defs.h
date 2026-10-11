@@ -1124,6 +1124,7 @@ struct kbase_csf_firmware_interface {
 	u32 data_end;
 	void *kernel_map;
 	struct protected_memory_allocation **pma;
+	u32 last_checksum;
 };
 
 /*

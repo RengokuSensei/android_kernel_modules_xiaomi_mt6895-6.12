@@ -11,6 +11,9 @@
 #include <linux/delay.h>
 #include <linux/spinlock.h>
 #include <linux/moduleparam.h>
+#include <linux/regulator/consumer.h>
+#include <linux/of_platform.h>
+#include <linux/clk.h>
 #include <mali_kbase.h>
 #include <mali_kbase_defs.h>
 #include <mali_kbase_config.h>
@@ -252,6 +255,36 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 		if (!IS_ERR_OR_NULL(bg3d_clk)) {
 			int clk_ret = clk_prepare_enable(bg3d_clk);
 			dev_info(kbdev->dev, "GPU PM: mfgcfg_bg3d clk_prepare_enable returned %d\n", clk_ret);
+		}
+	}
+
+	/* Ensure _vstack regulator (mt6368_vbuck2) is powered and set to active voltage (687.5 mV) */
+	{
+		struct regulator *vstack_reg = devm_regulator_get_optional(kbdev->dev, "_vstack");
+
+		if (IS_ERR_OR_NULL(vstack_reg)) {
+			/* Fallback: try getting _vstack from gpufreq node */
+			struct device_node *gnode = of_find_node_by_name(NULL, "gpufreq");
+			if (gnode) {
+				struct platform_device *gpdev = of_find_device_by_node(gnode);
+				if (gpdev)
+					vstack_reg = regulator_get_optional(&gpdev->dev, "_vstack");
+				of_node_put(gnode);
+			}
+		}
+
+		if (!IS_ERR_OR_NULL(vstack_reg)) {
+			int v_cur = regulator_get_voltage(vstack_reg);
+			int set_ret = regulator_set_voltage(vstack_reg, 687500, 750000);
+			int en_ret = regulator_enable(vstack_reg);
+			int v_after = regulator_get_voltage(vstack_reg);
+
+			dev_info(kbdev->dev,
+				"GPU PM: _vstack regulator (mt6368_vbuck2): cur=%d uV, set_ret=%d, en_ret=%d, after=%d uV\n",
+				v_cur, set_ret, en_ret, v_after);
+		} else {
+			dev_warn(kbdev->dev, "GPU PM: failed to acquire _vstack regulator (%ld)\n",
+				PTR_ERR(vstack_reg));
 		}
 	}
 

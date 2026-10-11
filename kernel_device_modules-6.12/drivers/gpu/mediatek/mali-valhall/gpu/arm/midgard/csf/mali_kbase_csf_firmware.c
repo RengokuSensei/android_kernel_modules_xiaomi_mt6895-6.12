@@ -47,6 +47,10 @@
 #include <mmu/mali_kbase_mmu.h>
 #include <asm/arch_timer.h>
 #include <linux/delay.h>
+#include <linux/highmem.h>
+#include <linux/mm.h>
+#include <linux/pfn.h>
+#include <linux/clk.h>
 
 #if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
 #include <mtk_gpufreq.h>
@@ -79,28 +83,110 @@ MODULE_PARM_DESC(mali_prepower_cores,
 static u32 s_pre_mcu_csum;
 static u32 s_pre_mcu_bytes;
 
-static u32 kbase_csf_calc_firmware_mem_checksum(struct kbase_device *kbdev, u32 *out_bytes)
+static u32 kbase_csf_calc_firmware_mem_checksum(struct kbase_device *kbdev, u32 *out_bytes, const char *phase)
 {
 	struct kbase_csf_firmware_interface *iface;
-	u32 csum = 0x12345678;
+	u32 total_csum = 0x12345678;
 	u32 total_bytes = 0;
+	bool is_pre = (strcmp(phase, "PRE") == 0);
 
 	list_for_each_entry(iface, &kbdev->csf.firmware_interfaces, node) {
-		/* Only inspect interfaces that have a valid CPU virtual mapping */
+		u32 iface_csum = 0x55aa55aa;
+		u32 iface_bytes = 0;
+
+		/* Skip protected memory interfaces (firewalled PMA at 0x79000000) */
+		if ((iface->flags & CSF_FIRMWARE_ENTRY_PROTECTED) || iface->pma != NULL) {
+			dev_info(kbdev->dev,
+				"[CSF SNAPSHOT IFACE %s] va=0x%08x '%s' pages=%u SKIPPED (PROTECTED PMA)\n",
+				phase, iface->virtual, iface->name ? iface->name : "unnamed", iface->num_pages);
+			continue;
+		}
+
+		/* If a direct CPU virtual kernel mapping is present, read directly */
 		if (iface->kernel_map && iface->num_pages > 0) {
 			u32 *words = iface->kernel_map;
 			u32 total_words = (iface->num_pages * PAGE_SIZE) / 4;
 			u32 w;
 
 			for (w = 0; w < total_words; w++) {
-				csum = (csum << 5) - csum + READ_ONCE(words[w]);
+				u32 val = READ_ONCE(words[w]);
+				iface_csum = (iface_csum << 5) - iface_csum + val;
+				total_csum = (total_csum << 5) - total_csum + val;
 			}
-			total_bytes += iface->num_pages * PAGE_SIZE;
+			iface_bytes = iface->num_pages * PAGE_SIZE;
+			total_bytes += iface_bytes;
+
+			if (is_pre) {
+				iface->last_checksum = iface_csum;
+				dev_info(kbdev->dev,
+					"[CSF SNAPSHOT IFACE PRE] va=0x%08x '%s' pages=%u csum=0x%08x (via kernel_map)\n",
+					iface->virtual, iface->name ? iface->name : "unnamed", iface->num_pages, iface_csum);
+			} else {
+				bool changed = (iface_csum != iface->last_checksum);
+				dev_err(kbdev->dev,
+					"[CSF SNAPSHOT IFACE POST] va=0x%08x '%s' pages=%u csum=0x%08x (PRE=0x%08x -> %s)\n",
+					iface->virtual, iface->name ? iface->name : "unnamed", iface->num_pages,
+					iface_csum, iface->last_checksum,
+					changed ? "CHANGED (MCU MODIFIED THIS SECTION!)" : "IDENTICAL (UNTOUCHED)");
+			}
+		} else if (iface->phys && iface->num_pages > 0) {
+			/* Map physical pages safely using kmap_local_page, skipping firewalled regions */
+			u32 p;
+			u32 mapped_pages = 0;
+
+			for (p = 0; p < iface->num_pages; p++) {
+				phys_addr_t pa = as_phys_addr_t(iface->phys[p]);
+				unsigned long pfn;
+				struct page *pg;
+				u32 *words;
+				int w;
+
+				/* Explicitly skip MediaTek protected DEVAPC firewall range (0x78c00000 - 0x79ffffff) */
+				if (pa >= 0x78c00000 && pa <= 0x79ffffff)
+					continue;
+
+				pfn = __phys_to_pfn(pa);
+				if (!pfn_valid(pfn))
+					continue;
+
+				pg = pfn_to_page(pfn);
+				if (!pg)
+					continue;
+
+				words = kmap_local_page(pg);
+				for (w = 0; w < (PAGE_SIZE / 4); w++) {
+					u32 val = READ_ONCE(words[w]);
+					iface_csum = (iface_csum << 5) - iface_csum + val;
+					total_csum = (total_csum << 5) - total_csum + val;
+				}
+				kunmap_local(words);
+				mapped_pages++;
+			}
+
+			iface_bytes = mapped_pages * PAGE_SIZE;
+			total_bytes += iface_bytes;
+
+			if (is_pre) {
+				iface->last_checksum = iface_csum;
+				dev_info(kbdev->dev,
+					"[CSF SNAPSHOT IFACE PRE] va=0x%08x '%s' pages=%u/%u csum=0x%08x (via kmap_local_page)\n",
+					iface->virtual, iface->name ? iface->name : "unnamed",
+					mapped_pages, iface->num_pages, iface_csum);
+			} else {
+				bool changed = (iface_csum != iface->last_checksum);
+				dev_err(kbdev->dev,
+					"[CSF SNAPSHOT IFACE POST] va=0x%08x '%s' pages=%u/%u csum=0x%08x (PRE=0x%08x -> %s)\n",
+					iface->virtual, iface->name ? iface->name : "unnamed",
+					mapped_pages, iface->num_pages,
+					iface_csum, iface->last_checksum,
+					changed ? "CHANGED (MCU MODIFIED THIS SECTION!)" : "IDENTICAL (UNTOUCHED)");
+			}
 		}
 	}
+
 	if (out_bytes)
 		*out_bytes = total_bytes;
-	return csum;
+	return total_csum;
 }
 
 #ifdef CONFIG_MALI_DEBUG
@@ -388,12 +474,12 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 				out_block[4]);
 		}
 
-		/* Claude Experiment: Compare firmware memory checksum after timeout */
+		/* Compare firmware memory checksum after timeout */
 		{
 			u32 post_bytes = 0;
-			u32 post_csum = kbase_csf_calc_firmware_mem_checksum(kbdev, &post_bytes);
+			u32 post_csum = kbase_csf_calc_firmware_mem_checksum(kbdev, &post_bytes, "POST");
 			dev_err(kbdev->dev,
-				"[CSF SNAPSHOT POST] Checksum=0x%08x (PRE=0x%08x DELTA=%s across %u bytes)\n",
+				"[CSF SNAPSHOT TOTAL POST] Checksum=0x%08x (PRE=0x%08x DELTA=%s across %u bytes)\n",
 				post_csum, s_pre_mcu_csum,
 				(post_csum != s_pre_mcu_csum) ? "CHANGED (MCU EXECUTED INSTRUCTIONS!)" : "IDENTICAL (MCU NEVER TOUCHED MEMORY!)",
 				post_bytes);
@@ -484,10 +570,10 @@ static void boot_csf_firmware(struct kbase_device *kbdev)
 			sh_pwr, ti_pwr, l2_pwr);
 	}
 
-	/* Claude Experiment: Snapshot firmware writable pages before enabling MCU */
-	s_pre_mcu_csum = kbase_csf_calc_firmware_mem_checksum(kbdev, &s_pre_mcu_bytes);
+	/* Snapshot firmware writable pages before enabling MCU */
+	s_pre_mcu_csum = kbase_csf_calc_firmware_mem_checksum(kbdev, &s_pre_mcu_bytes, "PRE");
 	dev_info(kbdev->dev,
-		"[CSF SNAPSHOT PRE] Firmware mem checksum=0x%08x across %u bytes\n",
+		"[CSF SNAPSHOT TOTAL PRE] Checksum=0x%08x across %u bytes\n",
 		s_pre_mcu_csum, s_pre_mcu_bytes);
 
 	/* Optional pre-power for STACK and SHADER cores (default disabled) */
@@ -508,6 +594,64 @@ static void boot_csf_firmware(struct kbase_device *kbdev)
 			kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_READY_LO)),
 			kbase_reg_read(kbdev, GPU_CONTROL_REG(STACK_PWRTRANS_LO)),
 			kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_PWRTRANS_LO)));
+	}
+
+	/* Hardware Clock and Power State Diagnostic Dump right before MCU enable */
+	{
+		void __iomem *topck = ioremap(0x10000000, 0x1000);
+		void __iomem *mfgpll = ioremap(0x13fa0000, 0x1000);
+		void __iomem *mfg_top = ioremap(0x13fbf000, 0x1000);
+		void __iomem *spm = ioremap(0x1c001000, 0x1000);
+		u32 mfg_sel0 = 0, mfg_sel1 = 0, mfg_ref = 0, mfgsc_ref = 0;
+		u32 pll_con0 = 0, pll_con1 = 0, pllsc_con0 = 0, pllsc_con1 = 0;
+		u32 bg3d_sta = 0, qch_con = 0, spm_pwr = 0, spm_pwr2 = 0;
+		struct clk *c_sel0 = devm_clk_get_optional(kbdev->dev, "mfg_sel_0");
+		struct clk *c_sel1 = devm_clk_get_optional(kbdev->dev, "mfg_sel_1");
+		struct clk *c_bg3d = devm_clk_get_optional(kbdev->dev, "mfgcfg_bg3d");
+		unsigned long rate_sel0 = (!IS_ERR_OR_NULL(c_sel0)) ? clk_get_rate(c_sel0) : 0;
+		unsigned long rate_sel1 = (!IS_ERR_OR_NULL(c_sel1)) ? clk_get_rate(c_sel1) : 0;
+		unsigned long rate_bg3d = (!IS_ERR_OR_NULL(c_bg3d)) ? clk_get_rate(c_bg3d) : 0;
+
+		if (topck) {
+			mfg_sel0 = readl(topck + 0x1f0) & BIT(16);
+			mfg_sel1 = readl(topck + 0x1f0) & BIT(17);
+			mfg_ref = (readl(topck + 0x50) >> 24) & 0x3;
+			mfgsc_ref = readl(topck + 0x60) & 0x3;
+			iounmap(topck);
+		}
+		if (mfgpll) {
+			pll_con0 = readl(mfgpll + 0x0);
+			pll_con1 = readl(mfgpll + 0x4);
+			pllsc_con0 = readl(mfgpll + 0xc00);
+			pllsc_con1 = readl(mfgpll + 0xc04);
+			iounmap(mfgpll);
+		}
+		if (mfg_top) {
+			bg3d_sta = readl(mfg_top + 0x0);
+			qch_con = readl(mfg_top + 0xb4);
+			iounmap(mfg_top);
+		}
+		if (spm) {
+			spm_pwr = readl(spm + 0xf3c);
+			spm_pwr2 = readl(spm + 0xf40);
+			iounmap(spm);
+		}
+
+		dev_info(kbdev->dev,
+			"[CSF DIAG CLK PRE_MCU] CCF RATES: mfg_sel_0=%lu Hz, mfg_sel_1=%lu Hz, mfgcfg_bg3d=%lu Hz\n",
+			rate_sel0, rate_sel1, rate_bg3d);
+		dev_info(kbdev->dev,
+			"[CSF DIAG CLK PRE_MCU] TOPCKGEN: CLK_CFG_30[16:17]=0x%x:0x%x (sel0=%s, sel1=%s), ref=%u, sc_ref=%u\n",
+			mfg_sel0 ? 1 : 0, mfg_sel1 ? 1 : 0,
+			mfg_sel0 ? "MAIN_PLL" : "26M/SUB", mfg_sel1 ? "SC_PLL" : "26M/SUB",
+			mfg_ref, mfgsc_ref);
+		dev_info(kbdev->dev,
+			"[CSF DIAG CLK PRE_MCU] PLL_CON0/1: MFGPLL=0x%08x/0x%08x MFGSC=0x%08x/0x%08x | BG3D_STA=0x%08x (%s) QCH=0x%08x\n",
+			pll_con0, pll_con1, pllsc_con0, pllsc_con1,
+			bg3d_sta, (bg3d_sta & 1) ? "GATED" : "UNGATED", qch_con);
+		dev_info(kbdev->dev,
+			"[CSF DIAG CLK PRE_MCU] SPM PWR: PWR_STATUS=0x%08x PWR_STATUS_2ND=0x%08x\n",
+			spm_pwr, spm_pwr2);
 	}
 
 	dev_info(kbdev->dev, "kbase [BREADCRUMB]: enabling CSF MCU...\n");

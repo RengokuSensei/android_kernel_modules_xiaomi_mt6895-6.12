@@ -10169,6 +10169,7 @@
 		operating-points-v2 = <&gpu_mali_opp>;
 		#cooling-cells = <2>;
 		ged-supply = <&ged>;
+		_vstack-supply = <&mt6368_vbuck2>;
 	};
 
 	camisp: camisp@1a000000 {
