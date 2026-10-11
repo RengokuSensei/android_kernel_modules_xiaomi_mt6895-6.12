@@ -86,18 +86,16 @@ static u32 kbase_csf_calc_firmware_mem_checksum(struct kbase_device *kbdev, u32 
 	u32 total_bytes = 0;
 
 	list_for_each_entry(iface, &kbdev->csf.firmware_interfaces, node) {
-		u32 p;
-		for (p = 0; p < iface->num_pages; p++) {
-			struct page *page = as_page(iface->phys[p]);
-			if (page) {
-				u32 *words = kmap_atomic(page);
-				int w;
-				for (w = 0; w < (PAGE_SIZE / 4); w++) {
-					csum = (csum << 5) - csum + words[w];
-				}
-				kunmap_atomic(words);
-				total_bytes += PAGE_SIZE;
+		/* Only inspect interfaces that have a valid CPU virtual mapping */
+		if (iface->kernel_map && iface->num_pages > 0) {
+			u32 *words = iface->kernel_map;
+			u32 total_words = (iface->num_pages * PAGE_SIZE) / 4;
+			u32 w;
+
+			for (w = 0; w < total_words; w++) {
+				csum = (csum << 5) - csum + READ_ONCE(words[w]);
 			}
+			total_bytes += iface->num_pages * PAGE_SIZE;
 		}
 	}
 	if (out_bytes)
