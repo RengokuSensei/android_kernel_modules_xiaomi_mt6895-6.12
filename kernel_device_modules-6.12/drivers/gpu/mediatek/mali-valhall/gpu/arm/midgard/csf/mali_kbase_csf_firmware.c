@@ -80,6 +80,8 @@ module_param(mali_prepower_cores, bool, 0644);
 MODULE_PARM_DESC(mali_prepower_cores,
 		 "Pre-power STACK and SHADER cores before MCU enable (default 0).");
 
+extern bool mali_skip_mcu_on_clk_fail;
+
 static u32 s_pre_mcu_csum;
 static u32 s_pre_mcu_bytes;
 
@@ -620,10 +622,10 @@ static void boot_csf_firmware(struct kbase_device *kbdev)
 			iounmap(topck);
 		}
 		if (mfgpll) {
-			pll_con0 = readl(mfgpll + 0x0);
-			pll_con1 = readl(mfgpll + 0x4);
-			pllsc_con0 = readl(mfgpll + 0xc00);
-			pllsc_con1 = readl(mfgpll + 0xc04);
+			pll_con0 = readl(mfgpll + 0x8);
+			pll_con1 = readl(mfgpll + 0xc);
+			pllsc_con0 = readl(mfgpll + 0xc08);
+			pllsc_con1 = readl(mfgpll + 0xc0c);
 			iounmap(mfgpll);
 		}
 		if (mfg_top) {
@@ -652,6 +654,16 @@ static void boot_csf_firmware(struct kbase_device *kbdev)
 		dev_info(kbdev->dev,
 			"[CSF DIAG CLK PRE_MCU] SPM PWR: PWR_STATUS=0x%08x PWR_STATUS_2ND=0x%08x\n",
 			spm_pwr, spm_pwr2);
+
+		if (mali_skip_mcu_on_clk_fail) {
+			if (!mfg_sel0 || !mfg_sel1 || !(pll_con0 & BIT(0)) || !(pllsc_con0 & BIT(0))) {
+				dev_err(kbdev->dev,
+					"[CSF MCU SAFETY GATE] REFUSING to enable MCU: GPU PLLs or muxes not ready! "
+					"mfg_sel0=%d mfg_sel1=%d MFGPLL_CON0=0x%08x MFGSC_CON0=0x%08x\n",
+					mfg_sel0 ? 1 : 0, mfg_sel1 ? 1 : 0, pll_con0, pllsc_con0);
+				return;
+			}
+		}
 	}
 
 	dev_info(kbdev->dev, "kbase [BREADCRUMB]: enabling CSF MCU...\n");

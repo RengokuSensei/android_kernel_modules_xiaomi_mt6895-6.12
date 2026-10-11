@@ -56,6 +56,247 @@ static bool mali_enable_pdca = true;
 module_param(mali_enable_pdca, bool, 0644);
 MODULE_PARM_DESC(mali_enable_pdca, "Enable MediaTek PDCv2 active power control in MFG_TOP_CONFIG (0x13FBF000)");
 
+static bool mali_enable_pll_clocks = true;
+module_param(mali_enable_pll_clocks, bool, 0644);
+MODULE_PARM_DESC(mali_enable_pll_clocks, "Enable MFGPLL and MFGSCPLL and switch CLK_CFG_30 muxes (Run 78)");
+
+bool mali_skip_mcu_on_clk_fail = true;
+module_param(mali_skip_mcu_on_clk_fail, bool, 0644);
+MODULE_PARM_DESC(mali_skip_mcu_on_clk_fail, "Refuse to boot MCU if PLLs or muxes are not verified ready");
+
+static bool g_mfg_clocks_enabled = false;
+
+struct mt6895_gpu_clocks {
+	struct clk *bg3d;          /* mfgcfg_bg3d */
+	struct clk *pll_main;      /* mfg_ao_mfgpll */
+	struct clk *pll_sc;        /* mfgsc_ao_mfgscpll */
+	struct clk *mux_0;         /* mfg_sel_0 */
+	struct clk *mux_1;         /* mfg_sel_1 */
+	struct clk *parent_main;   /* mfgpll_ck */
+	struct clk *parent_sc;     /* mfgscpll_ck */
+	struct clk *parent_sub;    /* mfg_ref_ck */
+	struct clk *parent_sc_sub; /* mfgsc_ref_ck */
+};
+static struct mt6895_gpu_clocks g_gpu_clks;
+static bool g_gpu_clks_acquired = false;
+
+static void mt6895_acquire_clocks(struct kbase_device *kbdev)
+{
+	if (g_gpu_clks_acquired)
+		return;
+
+	g_gpu_clks.bg3d = devm_clk_get_optional(kbdev->dev, "mfgcfg_bg3d");
+	g_gpu_clks.pll_main = devm_clk_get_optional(kbdev->dev, "mfg_ao_mfgpll");
+	if (IS_ERR_OR_NULL(g_gpu_clks.pll_main))
+		g_gpu_clks.pll_main = clk_get(NULL, "mfg_ao_mfgpll");
+
+	g_gpu_clks.pll_sc = devm_clk_get_optional(kbdev->dev, "mfgsc_ao_mfgscpll");
+	if (IS_ERR_OR_NULL(g_gpu_clks.pll_sc))
+		g_gpu_clks.pll_sc = clk_get(NULL, "mfgsc_ao_mfgscpll");
+
+	g_gpu_clks.mux_0 = devm_clk_get_optional(kbdev->dev, "mfg_sel_0");
+	g_gpu_clks.mux_1 = devm_clk_get_optional(kbdev->dev, "mfg_sel_1");
+
+	g_gpu_clks.parent_main = devm_clk_get_optional(kbdev->dev, "mfgpll_ck");
+	if (IS_ERR_OR_NULL(g_gpu_clks.parent_main))
+		g_gpu_clks.parent_main = clk_get(NULL, "mfgpll_ck");
+
+	g_gpu_clks.parent_sc = devm_clk_get_optional(kbdev->dev, "mfgscpll_ck");
+	if (IS_ERR_OR_NULL(g_gpu_clks.parent_sc))
+		g_gpu_clks.parent_sc = clk_get(NULL, "mfgscpll_ck");
+
+	g_gpu_clks.parent_sub = devm_clk_get_optional(kbdev->dev, "mfg_ref_ck");
+	if (IS_ERR_OR_NULL(g_gpu_clks.parent_sub))
+		g_gpu_clks.parent_sub = clk_get(NULL, "mfg_ref_ck");
+
+	g_gpu_clks.parent_sc_sub = devm_clk_get_optional(kbdev->dev, "mfgsc_ref_ck");
+	if (IS_ERR_OR_NULL(g_gpu_clks.parent_sc_sub))
+		g_gpu_clks.parent_sc_sub = clk_get(NULL, "mfgsc_ref_ck");
+
+	dev_info(kbdev->dev,
+		"[CSF CLK ACQUIRE] bg3d=%p pll_main=%p pll_sc=%p mux0=%p mux1=%p parent_main=%p parent_sc=%p sub0=%p sub1=%p\n",
+		g_gpu_clks.bg3d, g_gpu_clks.pll_main, g_gpu_clks.pll_sc,
+		g_gpu_clks.mux_0, g_gpu_clks.mux_1,
+		g_gpu_clks.parent_main, g_gpu_clks.parent_sc,
+		g_gpu_clks.parent_sub, g_gpu_clks.parent_sc_sub);
+
+	g_gpu_clks_acquired = true;
+}
+
+static int mt6895_power_on_clocks(struct kbase_device *kbdev)
+{
+	int ret = 0;
+	void __iomem *mfg_pll_base;
+	void __iomem *topck;
+	u32 pll0_con0, pll0_con3, pll1_con0, pll1_con3, clk_cfg_30;
+	int i;
+
+	if (g_mfg_clocks_enabled)
+		return 0;
+
+	mt6895_acquire_clocks(kbdev);
+
+	if (!mali_enable_pll_clocks) {
+		dev_info(kbdev->dev, "[CSF CLK] PLL activation skipped (mali_enable_pll_clocks=0)\n");
+		return 0;
+	}
+
+	dev_info(kbdev->dev, "[CSF CLK] Starting stock-ordered GPU clock power-on sequence...\n");
+
+	/* Stock Step 1: Enable BG3D clock gate */
+	if (!IS_ERR_OR_NULL(g_gpu_clks.bg3d)) {
+		ret = clk_prepare_enable(g_gpu_clks.bg3d);
+		dev_info(kbdev->dev, "[CSF CLK] clk_prepare_enable(bg3d) = %d\n", ret);
+	}
+
+	/* Stock Step 2: Enable MFGPLL via CCF */
+	if (!IS_ERR_OR_NULL(g_gpu_clks.pll_main)) {
+		ret = clk_prepare_enable(g_gpu_clks.pll_main);
+		dev_info(kbdev->dev, "[CSF CLK] clk_prepare_enable(pll_main) = %d\n", ret);
+	}
+
+	/* Stock Step 3: Enable MFGSCPLL via CCF */
+	if (!IS_ERR_OR_NULL(g_gpu_clks.pll_sc)) {
+		ret = clk_prepare_enable(g_gpu_clks.pll_sc);
+		dev_info(kbdev->dev, "[CSF CLK] clk_prepare_enable(pll_sc) = %d\n", ret);
+	}
+
+	/* Stock Step 4: Hardware verification & assert fallback for PLLs */
+	mfg_pll_base = ioremap(0x13fa0000, 0x1000);
+	if (mfg_pll_base) {
+		/* MFGPLL_CON0 at 0x8, MFGPLL_CON3 at 0x14 */
+		pll0_con0 = readl(mfg_pll_base + 0x8);
+		pll0_con3 = readl(mfg_pll_base + 0x14);
+		/* MFGSCPLL_CON0 at 0xc08, MFGSCPLL_CON3 at 0xc14 */
+		pll1_con0 = readl(mfg_pll_base + 0xc08);
+		pll1_con3 = readl(mfg_pll_base + 0xc14);
+
+		dev_info(kbdev->dev,
+			"[CSF CLK RAW] PRE: MFGPLL CON0=0x%08x CON3=0x%08x | MFGSC CON0=0x%08x CON3=0x%08x\n",
+			pll0_con0, pll0_con3, pll1_con0, pll1_con3);
+
+		/* If bit 0 of CON0 is not set, assert hardware enable directly */
+		if (!(pll0_con0 & BIT(0))) {
+			dev_info(kbdev->dev, "[CSF CLK HW] Asserting MFGPLL hardware enable\n");
+			writel(readl(mfg_pll_base + 0x14) | BIT(0), mfg_pll_base + 0x14); /* PWR_ON */
+			udelay(1);
+			writel(readl(mfg_pll_base + 0x14) & ~BIT(1), mfg_pll_base + 0x14); /* Clear ISO */
+			udelay(1);
+			writel(readl(mfg_pll_base + 0x8) | BIT(0), mfg_pll_base + 0x8); /* EN */
+		}
+
+		if (!(pll1_con0 & BIT(0))) {
+			dev_info(kbdev->dev, "[CSF CLK HW] Asserting MFGSCPLL hardware enable\n");
+			writel(readl(mfg_pll_base + 0xc14) | BIT(0), mfg_pll_base + 0xc14); /* PWR_ON */
+			udelay(1);
+			writel(readl(mfg_pll_base + 0xc14) & ~BIT(1), mfg_pll_base + 0xc14); /* Clear ISO */
+			udelay(1);
+			writel(readl(mfg_pll_base + 0xc08) | BIT(0), mfg_pll_base + 0xc08); /* EN */
+		}
+
+		/* Poll for lock / analog settle (up to 1 ms) */
+		for (i = 0; i < 20; i++) {
+			udelay(50);
+			pll0_con0 = readl(mfg_pll_base + 0x8);
+			pll1_con0 = readl(mfg_pll_base + 0xc08);
+			if ((pll0_con0 & BIT(0)) && (pll1_con0 & BIT(0)))
+				break;
+		}
+
+		pll0_con3 = readl(mfg_pll_base + 0x14);
+		pll1_con3 = readl(mfg_pll_base + 0xc14);
+		dev_info(kbdev->dev,
+			"[CSF CLK RAW] POST: MFGPLL CON0=0x%08x CON3=0x%08x | MFGSC CON0=0x%08x CON3=0x%08x (loops=%d)\n",
+			pll0_con0, pll0_con3, pll1_con0, pll1_con3, i);
+
+		iounmap(mfg_pll_base);
+	}
+
+	/* Stock Step 5: Switch Muxes via CCF clk_set_parent if available */
+	if (!IS_ERR_OR_NULL(g_gpu_clks.mux_0) && !IS_ERR_OR_NULL(g_gpu_clks.parent_main)) {
+		ret = clk_set_parent(g_gpu_clks.mux_0, g_gpu_clks.parent_main);
+		dev_info(kbdev->dev, "[CSF CLK] clk_set_parent(mux_0 -> mfgpll_ck) = %d\n", ret);
+	}
+	if (!IS_ERR_OR_NULL(g_gpu_clks.mux_1) && !IS_ERR_OR_NULL(g_gpu_clks.parent_sc)) {
+		ret = clk_set_parent(g_gpu_clks.mux_1, g_gpu_clks.parent_sc);
+		dev_info(kbdev->dev, "[CSF CLK] clk_set_parent(mux_1 -> mfgscpll_ck) = %d\n", ret);
+	}
+
+	/* Stock Step 6: Hardware assert and verification of CLK_CFG_30 */
+	topck = ioremap(0x10000000, 0x1000);
+	if (topck) {
+		/* CLK_CFG_30 at 0x1f0, SET at 0x1f4, CLR at 0x1f8 */
+		clk_cfg_30 = readl(topck + 0x1f0);
+		dev_info(kbdev->dev,
+			"[CSF CLK] CLK_CFG_30 before mux switch: 0x%08x (bits 16:17 = %u:%u)\n",
+			clk_cfg_30, (clk_cfg_30 >> 16) & 1, (clk_cfg_30 >> 17) & 1);
+
+		/* Assert bits 16 and 17 to switch both muxes to MAIN_PLL / SC_PLL */
+		writel(BIT(16) | BIT(17), topck + 0x1f4);
+		clk_cfg_30 = readl(topck + 0x1f0);
+		dev_info(kbdev->dev,
+			"[CSF CLK] CLK_CFG_30 after mux switch: 0x%08x (bits 16:17 = %u:%u)\n",
+			clk_cfg_30, (clk_cfg_30 >> 16) & 1, (clk_cfg_30 >> 17) & 1);
+
+		if (!((clk_cfg_30 >> 16) & 1) || !((clk_cfg_30 >> 17) & 1)) {
+			dev_err(kbdev->dev, "[CSF CLK ERROR] CLK_CFG_30 mux switch failed! (bits 16:17 != 1:1)\n");
+			if (mali_skip_mcu_on_clk_fail) {
+				iounmap(topck);
+				return -EIO;
+			}
+		}
+		iounmap(topck);
+	}
+
+	udelay(50);
+	g_mfg_clocks_enabled = true;
+	dev_info(kbdev->dev, "[CSF CLK] GPU clock power-on sequence completed successfully!\n");
+	return 0;
+}
+
+static void mt6895_power_off_clocks(struct kbase_device *kbdev)
+{
+	void __iomem *topck;
+	u32 clk_cfg_30;
+
+	if (!g_mfg_clocks_enabled)
+		return;
+
+	dev_info(kbdev->dev, "[CSF CLK] Starting symmetric GPU clock power-off sequence...\n");
+
+	/* Step 1: Switch muxes back to 26M/ref inputs first (hardware) */
+	topck = ioremap(0x10000000, 0x1000);
+	if (topck) {
+		writel(BIT(16) | BIT(17), topck + 0x1f8); /* CLK_CFG_30_CLR */
+		clk_cfg_30 = readl(topck + 0x1f0);
+		dev_info(kbdev->dev,
+			"[CSF CLK] CLK_CFG_30 after switch to ref: 0x%08x (bits 16:17 = %u:%u)\n",
+			clk_cfg_30, (clk_cfg_30 >> 16) & 1, (clk_cfg_30 >> 17) & 1);
+		iounmap(topck);
+	}
+
+	/* Step 2: Switch CCF parents back to ref */
+	if (!IS_ERR_OR_NULL(g_gpu_clks.mux_0) && !IS_ERR_OR_NULL(g_gpu_clks.parent_sub))
+		clk_set_parent(g_gpu_clks.mux_0, g_gpu_clks.parent_sub);
+	if (!IS_ERR_OR_NULL(g_gpu_clks.mux_1) && !IS_ERR_OR_NULL(g_gpu_clks.parent_sc_sub))
+		clk_set_parent(g_gpu_clks.mux_1, g_gpu_clks.parent_sc_sub);
+
+	udelay(20);
+
+	/* Step 3: Disable PLLs */
+	if (!IS_ERR_OR_NULL(g_gpu_clks.pll_sc))
+		clk_disable_unprepare(g_gpu_clks.pll_sc);
+	if (!IS_ERR_OR_NULL(g_gpu_clks.pll_main))
+		clk_disable_unprepare(g_gpu_clks.pll_main);
+
+	/* Step 4: Disable BG3D clock gate */
+	if (!IS_ERR_OR_NULL(g_gpu_clks.bg3d))
+		clk_disable_unprepare(g_gpu_clks.bg3d);
+
+	g_mfg_clocks_enabled = false;
+	dev_info(kbdev->dev, "[CSF CLK] Symmetric GPU clock power-off completed.\n");
+}
+
 static void mt6895_pdca_config(struct kbase_device *kbdev, bool power_on)
 {
 	void __iomem *mfg_top;
@@ -100,7 +341,6 @@ static void mt6895_pdca_config(struct kbase_device *kbdev, bool power_on)
 		writel(readl(mfg_top + 0x100) | BIT(0), mfg_top + 0x100);
 
 		/* Physical shader stacks st0, st1, st4, st5 active_pwrctl_en (bit 0) */
-		/* STACK_PRESENT = 0x33: stacks 0, 1, 4, 5 exist in silicon (st2/st6 omitted) */
 		writel(readl(mfg_top + 0x120) | BIT(0), mfg_top + 0x120);
 		writel(readl(mfg_top + 0x140) | BIT(0), mfg_top + 0x140);
 		writel(readl(mfg_top + 0xC0)  | BIT(0), mfg_top + 0xC0);
@@ -128,10 +368,6 @@ static void mt6895_pdca_config(struct kbase_device *kbdev, bool power_on)
 			readl(mfg_top + 0x404), readl(mfg_top + 0x41C), readl(mfg_top + 0x434),
 			readl(mfg_top + 0x44C), readl(mfg_top + 0x464), readl(mfg_top + 0x47C));
 	} else {
-		/* Run 75: Do not clear PDCv2 active_pwrctl on power off.
-		 * Clearing it destabilizes subsequent power-on cycles causing L2 timeouts.
-		 * MTCMOS hardware manages core gating automatically while active.
-		 */
 		dev_info(kbdev->dev, "[CSF PDC] Preserving PDCv2 active_pwrctl on power off\n");
 	}
 
@@ -187,7 +423,7 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 
 	gpu_dvfs_status_footprint(GPU_DVFS_STATUS_STEP_1);
 
-	/* on,off/ SWCG(BG3D)/ MTCMOS/ BUCK */
+	/* Stock Step 1: on,off/ SWCG(BG3D)/ MTCMOS/ BUCK via gpufreq_power_control */
 #if defined(CONFIG_MTK_GPUFREQ_V2)
 	dev_info(kbdev->dev, "GPU PM Callback - Calling gpufreq_power_control(GPU_PWR_ON)\n");
 	if (gpufreq_power_control(GPU_PWR_ON) < 0) {
@@ -197,7 +433,7 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 	dev_info(kbdev->dev, "GPU PM Callback - Power On Successful\n");
 #endif /* CONFIG_MTK_GPUFREQ_V2 */
 
-	/* Check SPM power & ungate BG3D clock gate */
+	/* Stock Step 2: Check SPM power & bus status */
 	{
 		void __iomem *spm = ioremap(0x1c001000, 0x1000);
 		if (spm) {
@@ -249,46 +485,53 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 		}
 	}
 
-	/* Ensure Common Clock Framework enables mfgcfg_bg3d clock gate */
-	{
-		struct clk *bg3d_clk = devm_clk_get_optional(kbdev->dev, "mfgcfg_bg3d");
-		if (!IS_ERR_OR_NULL(bg3d_clk)) {
-			int clk_ret = clk_prepare_enable(bg3d_clk);
-			dev_info(kbdev->dev, "GPU PM: mfgcfg_bg3d clk_prepare_enable returned %d\n", clk_ret);
-		}
-	}
-
-	/* Ensure _vstack regulator (mt6368_vbuck2) is powered and set to active voltage (687.5 mV) */
+	/* Stock Step 3: Ensure all 3 regulators are powered and at active operating voltages */
 	{
 		struct regulator *vstack_reg = devm_regulator_get_optional(kbdev->dev, "_vstack");
+		struct regulator *vcore_reg = devm_regulator_get_optional(kbdev->dev, "_vcore");
+		struct regulator *vsram_reg = devm_regulator_get_optional(kbdev->dev, "_vsram");
 
-		if (IS_ERR_OR_NULL(vstack_reg)) {
-			/* Fallback: try getting _vstack from gpufreq node */
+		if (IS_ERR_OR_NULL(vstack_reg) || IS_ERR_OR_NULL(vcore_reg) || IS_ERR_OR_NULL(vsram_reg)) {
 			struct device_node *gnode = of_find_node_by_name(NULL, "gpufreq");
 			if (gnode) {
 				struct platform_device *gpdev = of_find_device_by_node(gnode);
-				if (gpdev)
-					vstack_reg = regulator_get_optional(&gpdev->dev, "_vstack");
+				if (gpdev) {
+					if (IS_ERR_OR_NULL(vstack_reg))
+						vstack_reg = regulator_get_optional(&gpdev->dev, "_vstack");
+					if (IS_ERR_OR_NULL(vcore_reg))
+						vcore_reg = regulator_get_optional(&gpdev->dev, "_vcore");
+					if (IS_ERR_OR_NULL(vsram_reg))
+						vsram_reg = regulator_get_optional(&gpdev->dev, "_vsram");
+				}
 				of_node_put(gnode);
 			}
 		}
 
+		if (!IS_ERR_OR_NULL(vcore_reg)) {
+			regulator_set_voltage(vcore_reg, 787500, 850000);
+			regulator_enable(vcore_reg);
+			dev_info(kbdev->dev, "GPU PM: _vcore regulator = %d uV\n", regulator_get_voltage(vcore_reg));
+		}
+		if (!IS_ERR_OR_NULL(vsram_reg)) {
+			regulator_set_voltage(vsram_reg, 750000, 800000);
+			regulator_enable(vsram_reg);
+			dev_info(kbdev->dev, "GPU PM: _vsram regulator = %d uV\n", regulator_get_voltage(vsram_reg));
+		}
 		if (!IS_ERR_OR_NULL(vstack_reg)) {
-			int v_cur = regulator_get_voltage(vstack_reg);
-			int set_ret = regulator_set_voltage(vstack_reg, 687500, 750000);
-			int en_ret = regulator_enable(vstack_reg);
-			int v_after = regulator_get_voltage(vstack_reg);
-
-			dev_info(kbdev->dev,
-				"GPU PM: _vstack regulator (mt6368_vbuck2): cur=%d uV, set_ret=%d, en_ret=%d, after=%d uV\n",
-				v_cur, set_ret, en_ret, v_after);
-		} else {
-			dev_warn(kbdev->dev, "GPU PM: failed to acquire _vstack regulator (%ld)\n",
-				PTR_ERR(vstack_reg));
+			regulator_set_voltage(vstack_reg, 687500, 750000);
+			regulator_enable(vstack_reg);
+			dev_info(kbdev->dev, "GPU PM: _vstack regulator = %d uV\n", regulator_get_voltage(vstack_reg));
 		}
 	}
 
-	/* Configure MediaTek PDCv2 for Mali hardware automatic MTCMOS power control */
+	/* Stock Step 4: Execute stock-ordered clock activation (PLLs + Muxes) */
+	if (mt6895_power_on_clocks(kbdev) < 0) {
+		dev_err(kbdev->dev, "GPU PM: mt6895_power_on_clocks failed!\n");
+		if (mali_skip_mcu_on_clk_fail)
+			return -EIO;
+	}
+
+	/* Stock Step 5: Configure MediaTek PDCv2 for Mali hardware automatic MTCMOS power control */
 	mt6895_pdca_config(kbdev, true);
 
 	gpu_dvfs_status_footprint(GPU_DVFS_STATUS_STEP_2);
@@ -361,7 +604,10 @@ static void pm_callback_power_off_nolock(struct kbase_device *kbdev)
 	}
 #endif /* CONFIG_MTK_GPUFREQ_V2 */
 
-	/* Clear MediaTek PDCv2 active power control on power down */
+	/* Symmetric Step: Power off GPU clocks (switch muxes to ref first, then disable PLLs) */
+	mt6895_power_off_clocks(kbdev);
+
+	/* Preserve PDCv2 active power control on power down */
 	mt6895_pdca_config(kbdev, false);
 
 	gpu_dvfs_status_footprint(GPU_DVFS_STATUS_STEP_B);
