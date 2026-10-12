@@ -3,6 +3,7 @@
 # iommu_secure / iommu_debug). Parent drivers/misc/mediatek/Makefile must
 # descend into iommu/ (obj-$(CONFIG_MTK_IOMMU_MISC)).
 ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/include
+ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/geniezone/public
 ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/iommu
 ccflags-y += -I$(DEVICE_MODULES_PATH)/drivers/iommu/arm/arm-smmu-v3
 
