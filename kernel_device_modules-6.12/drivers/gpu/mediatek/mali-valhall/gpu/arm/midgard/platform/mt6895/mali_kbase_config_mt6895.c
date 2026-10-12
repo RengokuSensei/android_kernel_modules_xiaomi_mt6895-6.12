@@ -64,6 +64,10 @@ bool mali_skip_mcu_on_clk_fail = true;
 module_param(mali_skip_mcu_on_clk_fail, bool, 0644);
 MODULE_PARM_DESC(mali_skip_mcu_on_clk_fail, "Refuse to boot MCU if PLLs or muxes are not verified ready");
 
+static uint mali_hw_seq_mask = 0x7;
+module_param(mali_hw_seq_mask, uint, 0644);
+MODULE_PARM_DESC(mali_hw_seq_mask, "Bitmask for stock GPU power-on sequences: bit0=I2M, bit1=DCM, bit2=ACP (default 0x7)");
+
 static bool g_mfg_clocks_enabled = false;
 
 struct mt6895_gpu_clocks {
@@ -121,6 +125,48 @@ static void mt6895_acquire_clocks(struct kbase_device *kbdev)
 		g_gpu_clks.parent_sub, g_gpu_clks.parent_sc_sub);
 
 	g_gpu_clks_acquired = true;
+}
+
+static unsigned int mt6895_get_fmeter(void __iomem *con0_addr, void __iomem *con1_addr)
+{
+	u32 val = 0, ckgen_load_cnt = 0, ckgen_k1 = 0;
+	int i = 0;
+	unsigned int freq = 0;
+
+	writel(0x00FF0000, con1_addr);
+	val = readl(con0_addr);
+	writel((val & 0x00FFFFFF), con0_addr);
+	writel(0x00009000, con0_addr);
+
+	ckgen_load_cnt = readl(con1_addr) >> 16;
+	ckgen_k1 = readl(con0_addr) >> 24;
+
+	val = readl(con0_addr);
+	writel((val | 0x1010), con0_addr);
+
+	/* wait fmeter finish */
+	while (readl(con0_addr) & 0x10) {
+		udelay(10);
+		i++;
+		if (i > 1000) {
+			pr_err("[CSF CLK FMETER] wait Fmeter timeout\n");
+			break;
+		}
+	}
+
+	val = readl(con1_addr) & 0xFFFF;
+	/* KHz */
+	freq = (val * 26000 * (ckgen_k1 + 1)) / (ckgen_load_cnt + 1);
+	return freq;
+}
+
+static unsigned int mt6895_calc_pll_rate(void __iomem *con1_addr)
+{
+	u32 mfgpll = readl(con1_addr);
+	u32 pcw = mfgpll & 0x3FFFFF;
+	u32 posdiv_power = (mfgpll & (0x7 << 24)) >> 24;
+
+	return (((pcw * 10 + 5) * 26) >> 14) / (1 << posdiv_power) * 100;
 }
 
 static int mt6895_power_on_clocks(struct kbase_device *kbdev)
@@ -212,40 +258,68 @@ static int mt6895_power_on_clocks(struct kbase_device *kbdev)
 		iounmap(mfg_pll_base);
 	}
 
-	/* Stock Step 5: Switch Muxes via CCF clk_set_parent if available */
+	/* Stock Step 5: Switch Muxes via CCF clk_set_parent natively */
 	if (!IS_ERR_OR_NULL(g_gpu_clks.mux_0) && !IS_ERR_OR_NULL(g_gpu_clks.parent_main)) {
 		ret = clk_set_parent(g_gpu_clks.mux_0, g_gpu_clks.parent_main);
 		dev_info(kbdev->dev, "[CSF CLK] clk_set_parent(mux_0 -> mfgpll_ck) = %d\n", ret);
+		if (ret) {
+			dev_err(kbdev->dev, "[CSF CLK ERROR] clk_set_parent(mux_0) failed: %d\n", ret);
+			if (mali_skip_mcu_on_clk_fail)
+				return ret;
+		}
 	}
 	if (!IS_ERR_OR_NULL(g_gpu_clks.mux_1) && !IS_ERR_OR_NULL(g_gpu_clks.parent_sc)) {
 		ret = clk_set_parent(g_gpu_clks.mux_1, g_gpu_clks.parent_sc);
 		dev_info(kbdev->dev, "[CSF CLK] clk_set_parent(mux_1 -> mfgscpll_ck) = %d\n", ret);
+		if (ret) {
+			dev_err(kbdev->dev, "[CSF CLK ERROR] clk_set_parent(mux_1) failed: %d\n", ret);
+			if (mali_skip_mcu_on_clk_fail)
+				return ret;
+		}
 	}
 
-	/* Stock Step 6: Hardware assert and verification of CLK_CFG_30 */
+	/* Stock Step 6: Verify CLK_CFG_30 (Read-only verification of CCF latch, no raw SET writes!) */
 	topck = ioremap(0x10000000, 0x1000);
 	if (topck) {
-		/* CLK_CFG_30 at 0x1f0, SET at 0x1f4, CLR at 0x1f8 */
 		clk_cfg_30 = readl(topck + 0x1f0);
 		dev_info(kbdev->dev,
-			"[CSF CLK] CLK_CFG_30 before mux switch: 0x%08x (bits 16:17 = %u:%u)\n",
-			clk_cfg_30, (clk_cfg_30 >> 16) & 1, (clk_cfg_30 >> 17) & 1);
-
-		/* Assert bits 16 and 17 to switch both muxes to MAIN_PLL / SC_PLL */
-		writel(BIT(16) | BIT(17), topck + 0x1f4);
-		clk_cfg_30 = readl(topck + 0x1f0);
-		dev_info(kbdev->dev,
-			"[CSF CLK] CLK_CFG_30 after mux switch: 0x%08x (bits 16:17 = %u:%u)\n",
+			"[CSF CLK] CLK_CFG_30 read-back: 0x%08x (bits 16:17 = %u:%u)\n",
 			clk_cfg_30, (clk_cfg_30 >> 16) & 1, (clk_cfg_30 >> 17) & 1);
 
 		if (!((clk_cfg_30 >> 16) & 1) || !((clk_cfg_30 >> 17) & 1)) {
-			dev_err(kbdev->dev, "[CSF CLK ERROR] CLK_CFG_30 mux switch failed! (bits 16:17 != 1:1)\n");
+			dev_err(kbdev->dev, "[CSF CLK ERROR] CLK_CFG_30 bits 16:17 != 1:1 after CCF parent switch!\n");
 			if (mali_skip_mcu_on_clk_fail) {
 				iounmap(topck);
 				return -EIO;
 			}
 		}
 		iounmap(topck);
+	}
+
+	/* Log CCF post-switch parent and rates */
+	if (!IS_ERR_OR_NULL(g_gpu_clks.mux_0) && !IS_ERR_OR_NULL(g_gpu_clks.mux_1)) {
+		struct clk *p0 = clk_get_parent(g_gpu_clks.mux_0);
+		struct clk *p1 = clk_get_parent(g_gpu_clks.mux_1);
+		dev_info(kbdev->dev,
+			"[CSF CLK CCF] mux_0: rate=%lu parent=%s | mux_1: rate=%lu parent=%s\n",
+			clk_get_rate(g_gpu_clks.mux_0),
+			p0 ? __clk_get_name(p0) : "null",
+			clk_get_rate(g_gpu_clks.mux_1),
+			p1 ? __clk_get_name(p1) : "null");
+	}
+
+	/* Stock Step 7: Measure Physical Hardware Frequencies via Fmeter & CON1 */
+	mfg_pll_base = ioremap(0x13fa0000, 0x1000);
+	if (mfg_pll_base) {
+		u32 fgpu_fmeter = mt6895_get_fmeter(mfg_pll_base + 0x040, mfg_pll_base + 0x044);
+		u32 fstack_fmeter = mt6895_get_fmeter(mfg_pll_base + 0xc40, mfg_pll_base + 0xc44);
+		u32 fgpu_calc = mt6895_calc_pll_rate(mfg_pll_base + 0x00c);
+		u32 fstack_calc = mt6895_calc_pll_rate(mfg_pll_base + 0xc0c);
+
+		dev_info(kbdev->dev,
+			"[CSF CLK FMETER] MFGPLL: calc=%u kHz, fmeter=%u kHz | MFGSCPLL: calc=%u kHz, fmeter=%u kHz\n",
+			fgpu_calc, fgpu_fmeter, fstack_calc, fstack_fmeter);
+		iounmap(mfg_pll_base);
 	}
 
 	udelay(50);
@@ -264,18 +338,7 @@ static void mt6895_power_off_clocks(struct kbase_device *kbdev)
 
 	dev_info(kbdev->dev, "[CSF CLK] Starting symmetric GPU clock power-off sequence...\n");
 
-	/* Step 1: Switch muxes back to 26M/ref inputs first (hardware) */
-	topck = ioremap(0x10000000, 0x1000);
-	if (topck) {
-		writel(BIT(16) | BIT(17), topck + 0x1f8); /* CLK_CFG_30_CLR */
-		clk_cfg_30 = readl(topck + 0x1f0);
-		dev_info(kbdev->dev,
-			"[CSF CLK] CLK_CFG_30 after switch to ref: 0x%08x (bits 16:17 = %u:%u)\n",
-			clk_cfg_30, (clk_cfg_30 >> 16) & 1, (clk_cfg_30 >> 17) & 1);
-		iounmap(topck);
-	}
-
-	/* Step 2: Switch CCF parents back to ref */
+	/* Step 1: Switch CCF parents back to ref first */
 	if (!IS_ERR_OR_NULL(g_gpu_clks.mux_0) && !IS_ERR_OR_NULL(g_gpu_clks.parent_sub)) {
 		int ret = clk_set_parent(g_gpu_clks.mux_0, g_gpu_clks.parent_sub);
 		if (ret)
@@ -285,6 +348,16 @@ static void mt6895_power_off_clocks(struct kbase_device *kbdev)
 		int ret = clk_set_parent(g_gpu_clks.mux_1, g_gpu_clks.parent_sc_sub);
 		if (ret)
 			dev_warn(kbdev->dev, "[CSF CLK] clk_set_parent(mux_1 -> ref) returned %d\n", ret);
+	}
+
+	/* Step 2: Read-back CLK_CFG_30 to verify switch to ref */
+	topck = ioremap(0x10000000, 0x1000);
+	if (topck) {
+		clk_cfg_30 = readl(topck + 0x1f0);
+		dev_info(kbdev->dev,
+			"[CSF CLK] CLK_CFG_30 after switch to ref: 0x%08x (bits 16:17 = %u:%u)\n",
+			clk_cfg_30, (clk_cfg_30 >> 16) & 1, (clk_cfg_30 >> 17) & 1);
+		iounmap(topck);
 	}
 
 	udelay(20);
@@ -375,6 +448,114 @@ static void mt6895_pdca_config(struct kbase_device *kbdev, bool power_on)
 			readl(mfg_top + 0x44C), readl(mfg_top + 0x464), readl(mfg_top + 0x47C));
 	} else {
 		dev_info(kbdev->dev, "[CSF PDC] Preserving PDCv2 active_pwrctl on power off\n");
+	}
+
+	iounmap(mfg_top);
+}
+
+static void mt6895_apply_stock_hw_sequences(struct kbase_device *kbdev)
+{
+	void __iomem *mfg_top;
+	void __iomem *mfg_rpc;
+	u32 val;
+
+	if (!mali_hw_seq_mask) {
+		dev_info(kbdev->dev, "[CSF HW-SEQ] Skipping stock hardware sequences (mali_hw_seq_mask=0)\n");
+		return;
+	}
+
+	mfg_top = ioremap(0x13fbf000, 0x1000);
+	if (!mfg_top) {
+		dev_err(kbdev->dev, "[CSF HW-SEQ] Failed to ioremap MFG_TOP_CONFIG (0x13fbf000)\n");
+		return;
+	}
+
+	dev_info(kbdev->dev, "[CSF HW-SEQ] Applying stock sequences with mask=0x%x\n", mali_hw_seq_mask);
+
+	/* Bit 0: I2M Protector sequence (MFG_I2M_PROTECTOR_CFG_00 GPM_ENABLE) */
+	if (mali_hw_seq_mask & BIT(0)) {
+		dev_info(kbdev->dev, "[CSF HW-SEQ] Executing I2M Protector sequence (bit 0)\n");
+		writel(0x20300316, mfg_top + 0xF60);
+		writel(0x1800000C, mfg_top + 0xF64);
+		writel(0x01010802, mfg_top + 0xF68);
+		writel(0x000227F3, mfg_top + 0xFA8);
+		udelay(10);
+		writel(0x20300317, mfg_top + 0xF60); /* bit 0 = GPM_ENABLE */
+		dev_info(kbdev->dev, "[CSF HW-SEQ] I2M 0xF60=0x%08x 0xF64=0x%08x 0xF68=0x%08x 0xFA8=0x%08x\n",
+			readl(mfg_top + 0xF60), readl(mfg_top + 0xF64),
+			readl(mfg_top + 0xF68), readl(mfg_top + 0xFA8));
+	}
+
+	/* Bit 1: DCM sequence (MFG_DCM_CON_0, MFG_GLOBAL_CON, MFG_QCHANNEL_CON, MFG_RPC_AO_CLK_CFG) */
+	if (mali_hw_seq_mask & BIT(1)) {
+		dev_info(kbdev->dev, "[CSF HW-SEQ] Executing DCM sequence (bit 1)\n");
+		/* 0x13FBF010: MFG_DCM_CON_0 (mask 0x3FF7F -> 0xC03F) */
+		val = readl(mfg_top + 0x010);
+		val = (val & ~0x3FF7F) | 0xC03F;
+		writel(val, mfg_top + 0x010);
+
+		/* 0x13FBF024: MFG_ASYNC_CON_1 (bit 0 set) */
+		val = readl(mfg_top + 0x024);
+		val |= BIT(0);
+		writel(val, mfg_top + 0x024);
+
+		/* 0x13FBF0B0: MFG_GLOBAL_CON (clear bits 8, 9, 10, 19) */
+		val = readl(mfg_top + 0x0B0);
+		val &= ~0x80700;
+		writel(val, mfg_top + 0x0B0);
+
+		/* 0x13FBF0B4: MFG_QCHANNEL_CON (set bit 4) */
+		val = readl(mfg_top + 0x0B4);
+		val |= BIT(4);
+		writel(val, mfg_top + 0x0B4);
+
+		/* 0x13F91034: MFG_RPC_AO_CLK_CFG in RPC block (clear bit 0) */
+		mfg_rpc = ioremap(0x13f90000, 0x2000);
+		if (mfg_rpc) {
+			val = readl(mfg_rpc + 0x1034);
+			val &= ~BIT(0);
+			writel(val, mfg_rpc + 0x1034);
+			dev_info(kbdev->dev, "[CSF HW-SEQ] DCM: MFG_RPC_AO_CLK_CFG(0x13F91034)=0x%08x\n",
+				readl(mfg_rpc + 0x1034));
+			iounmap(mfg_rpc);
+		} else {
+			dev_err(kbdev->dev, "[CSF HW-SEQ] Failed to ioremap MFG_RPC (0x13f90000)\n");
+		}
+	}
+
+	/* Bit 2: ACP sequence (Coherency Port: 0x168, 0x8E0..0x928 from disassembly) */
+	if (mali_hw_seq_mask & BIT(2)) {
+		dev_info(kbdev->dev, "[CSF HW-SEQ] Executing ACP coherency sequence (bit 2)\n");
+		val = readl(mfg_top + 0x168);
+		val |= 0xF;
+		writel(val, mfg_top + 0x168);
+
+		val = readl(mfg_top + 0x8E0);
+		val |= 0x855;
+		writel(val, mfg_top + 0x8E0);
+
+		val = readl(mfg_top + 0x8E8);
+		val |= 0x855;
+		writel(val, mfg_top + 0x8E8);
+
+		val = readl(mfg_top + 0x910);
+		val |= 0x855;
+		writel(val, mfg_top + 0x910);
+
+		val = readl(mfg_top + 0x918);
+		val |= 0x855;
+		writel(val, mfg_top + 0x918);
+
+		val = readl(mfg_top + 0x920);
+		val |= 0x55;
+		writel(val, mfg_top + 0x920);
+
+		val = readl(mfg_top + 0x928);
+		val |= 0x55;
+		writel(val, mfg_top + 0x928);
+
+		dev_info(kbdev->dev, "[CSF HW-SEQ] ACP 0x168=0x%08x 0x8E0=0x%08x 0x920=0x%08x\n",
+			readl(mfg_top + 0x168), readl(mfg_top + 0x8E0), readl(mfg_top + 0x920));
 	}
 
 	iounmap(mfg_top);
@@ -516,7 +697,7 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 		int reg_ret;
 
 		if (!IS_ERR_OR_NULL(vcore_reg)) {
-			reg_ret = regulator_set_voltage(vcore_reg, 787500, 850000);
+			/* Leave voltage to mmdvfs shared SoC rail, ensure enabled */
 			reg_ret = regulator_enable(vcore_reg);
 			dev_info(kbdev->dev, "GPU PM: _vcore regulator = %d uV (en_ret=%d)\n",
 				regulator_get_voltage(vcore_reg), reg_ret);
@@ -544,6 +725,9 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 
 	/* Stock Step 5: Configure MediaTek PDCv2 for Mali hardware automatic MTCMOS power control */
 	mt6895_pdca_config(kbdev, true);
+
+	/* Stock Step 6: Apply stock MMIO power-on sequences (I2M, DCM, ACP) */
+	mt6895_apply_stock_hw_sequences(kbdev);
 
 	gpu_dvfs_status_footprint(GPU_DVFS_STATUS_STEP_2);
 
