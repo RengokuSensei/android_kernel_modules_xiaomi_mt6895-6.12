@@ -276,10 +276,16 @@ static void mt6895_power_off_clocks(struct kbase_device *kbdev)
 	}
 
 	/* Step 2: Switch CCF parents back to ref */
-	if (!IS_ERR_OR_NULL(g_gpu_clks.mux_0) && !IS_ERR_OR_NULL(g_gpu_clks.parent_sub))
-		clk_set_parent(g_gpu_clks.mux_0, g_gpu_clks.parent_sub);
-	if (!IS_ERR_OR_NULL(g_gpu_clks.mux_1) && !IS_ERR_OR_NULL(g_gpu_clks.parent_sc_sub))
-		clk_set_parent(g_gpu_clks.mux_1, g_gpu_clks.parent_sc_sub);
+	if (!IS_ERR_OR_NULL(g_gpu_clks.mux_0) && !IS_ERR_OR_NULL(g_gpu_clks.parent_sub)) {
+		int ret = clk_set_parent(g_gpu_clks.mux_0, g_gpu_clks.parent_sub);
+		if (ret)
+			dev_warn(kbdev->dev, "[CSF CLK] clk_set_parent(mux_0 -> ref) returned %d\n", ret);
+	}
+	if (!IS_ERR_OR_NULL(g_gpu_clks.mux_1) && !IS_ERR_OR_NULL(g_gpu_clks.parent_sc_sub)) {
+		int ret = clk_set_parent(g_gpu_clks.mux_1, g_gpu_clks.parent_sc_sub);
+		if (ret)
+			dev_warn(kbdev->dev, "[CSF CLK] clk_set_parent(mux_1 -> ref) returned %d\n", ret);
+	}
 
 	udelay(20);
 
@@ -507,20 +513,25 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 			}
 		}
 
+		int reg_ret;
+
 		if (!IS_ERR_OR_NULL(vcore_reg)) {
-			regulator_set_voltage(vcore_reg, 787500, 850000);
-			regulator_enable(vcore_reg);
-			dev_info(kbdev->dev, "GPU PM: _vcore regulator = %d uV\n", regulator_get_voltage(vcore_reg));
+			reg_ret = regulator_set_voltage(vcore_reg, 787500, 850000);
+			reg_ret = regulator_enable(vcore_reg);
+			dev_info(kbdev->dev, "GPU PM: _vcore regulator = %d uV (en_ret=%d)\n",
+				regulator_get_voltage(vcore_reg), reg_ret);
 		}
 		if (!IS_ERR_OR_NULL(vsram_reg)) {
-			regulator_set_voltage(vsram_reg, 750000, 800000);
-			regulator_enable(vsram_reg);
-			dev_info(kbdev->dev, "GPU PM: _vsram regulator = %d uV\n", regulator_get_voltage(vsram_reg));
+			reg_ret = regulator_set_voltage(vsram_reg, 750000, 800000);
+			reg_ret = regulator_enable(vsram_reg);
+			dev_info(kbdev->dev, "GPU PM: _vsram regulator = %d uV (en_ret=%d)\n",
+				regulator_get_voltage(vsram_reg), reg_ret);
 		}
 		if (!IS_ERR_OR_NULL(vstack_reg)) {
-			regulator_set_voltage(vstack_reg, 687500, 750000);
-			regulator_enable(vstack_reg);
-			dev_info(kbdev->dev, "GPU PM: _vstack regulator = %d uV\n", regulator_get_voltage(vstack_reg));
+			reg_ret = regulator_set_voltage(vstack_reg, 687500, 750000);
+			reg_ret = regulator_enable(vstack_reg);
+			dev_info(kbdev->dev, "GPU PM: _vstack regulator = %d uV (en_ret=%d)\n",
+				regulator_get_voltage(vstack_reg), reg_ret);
 		}
 	}
 
