@@ -283,5 +283,3 @@ int m4u_gz_exec_cmd(struct m4u_gz_sec_context *ctx)
 
 	return 0;
 }
-
-MODULE_LICENSE("GPL v2");
