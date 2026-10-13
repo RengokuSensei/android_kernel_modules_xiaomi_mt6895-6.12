@@ -365,27 +365,46 @@ static int gf_parse_dts(struct gf_dev *gf_dev)
 		ret = gpio_request(gf_dev->reset_gpio, "gf_reset_gpio");
 		if (ret) {
 			dev_err(dev, "Failed to request reset gpio: %d\n", ret);
-			if (gpio_is_valid(gf_dev->irq_gpio))
-				gpio_free(gf_dev->irq_gpio);
-			return ret;
+			goto err_free_irq_gpio;
 		}
 		gpio_direction_output(gf_dev->reset_gpio, 1);
 	}
 
 	gf_dev->vfp = regulator_get(dev, "vfp");
-	if (IS_ERR(gf_dev->vfp))
+	if (IS_ERR(gf_dev->vfp)) {
+		if (PTR_ERR(gf_dev->vfp) == -EPROBE_DEFER) {
+			ret = -EPROBE_DEFER;
+			goto err_free_reset_gpio;
+		}
 		gf_dev->vfp = NULL;
+	}
 
 	gf_dev->vibr = regulator_get(dev, "vibr");
-	if (IS_ERR(gf_dev->vibr))
+	if (IS_ERR(gf_dev->vibr)) {
+		if (PTR_ERR(gf_dev->vibr) == -EPROBE_DEFER) {
+			ret = -EPROBE_DEFER;
+			goto err_put_vfp;
+		}
 		gf_dev->vibr = NULL;
+	}
 
 	gf_dev->vufs18 = regulator_get(dev, "vufs18");
-	if (IS_ERR(gf_dev->vufs18))
+	if (IS_ERR(gf_dev->vufs18)) {
+		if (PTR_ERR(gf_dev->vufs18) == -EPROBE_DEFER) {
+			ret = -EPROBE_DEFER;
+			goto err_put_vibr;
+		}
 		gf_dev->vufs18 = NULL;
+	}
 
 	gf_dev->pinctrl = devm_pinctrl_get(dev);
-	if (!IS_ERR(gf_dev->pinctrl)) {
+	if (IS_ERR(gf_dev->pinctrl)) {
+		if (PTR_ERR(gf_dev->pinctrl) == -EPROBE_DEFER) {
+			ret = -EPROBE_DEFER;
+			goto err_put_vufs18;
+		}
+		gf_dev->pinctrl = NULL;
+	} else {
 		gf_dev->pin_default = pinctrl_lookup_state(gf_dev->pinctrl, "default");
 		gf_dev->pin_reset_high = pinctrl_lookup_state(gf_dev->pinctrl, "reset_high");
 		gf_dev->pin_reset_low = pinctrl_lookup_state(gf_dev->pinctrl, "reset_low");
@@ -401,6 +420,30 @@ static int gf_parse_dts(struct gf_dev *gf_dev)
 	}
 
 	return 0;
+
+err_put_vufs18:
+	if (gf_dev->vufs18) {
+		regulator_put(gf_dev->vufs18);
+		gf_dev->vufs18 = NULL;
+	}
+err_put_vibr:
+	if (gf_dev->vibr) {
+		regulator_put(gf_dev->vibr);
+		gf_dev->vibr = NULL;
+	}
+err_put_vfp:
+	if (gf_dev->vfp) {
+		regulator_put(gf_dev->vfp);
+		gf_dev->vfp = NULL;
+	}
+err_free_reset_gpio:
+	if (gpio_is_valid(gf_dev->reset_gpio))
+		gpio_free(gf_dev->reset_gpio);
+err_free_irq_gpio:
+	if (gpio_is_valid(gf_dev->irq_gpio))
+		gpio_free(gf_dev->irq_gpio);
+
+	return ret;
 }
 
 static int gf_probe(struct spi_device *spi)
