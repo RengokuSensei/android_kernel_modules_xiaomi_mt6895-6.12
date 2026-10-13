@@ -296,16 +296,12 @@ static int mt6895_power_on_clocks(struct kbase_device *kbdev)
 		iounmap(topck);
 	}
 
-	/* Log CCF post-switch parent and rates */
+	/* Log CCF post-switch rates */
 	if (!IS_ERR_OR_NULL(g_gpu_clks.mux_0) && !IS_ERR_OR_NULL(g_gpu_clks.mux_1)) {
-		struct clk *p0 = clk_get_parent(g_gpu_clks.mux_0);
-		struct clk *p1 = clk_get_parent(g_gpu_clks.mux_1);
 		dev_info(kbdev->dev,
-			"[CSF CLK CCF] mux_0: rate=%lu parent=%s | mux_1: rate=%lu parent=%s\n",
+			"[CSF CLK CCF] mux_0: rate=%lu Hz | mux_1: rate=%lu Hz\n",
 			clk_get_rate(g_gpu_clks.mux_0),
-			p0 ? __clk_get_name(p0) : "null",
-			clk_get_rate(g_gpu_clks.mux_1),
-			p1 ? __clk_get_name(p1) : "null");
+			clk_get_rate(g_gpu_clks.mux_1));
 	}
 
 	/* Stock Step 7: Measure Physical Hardware Frequencies via Fmeter & CON1 */
