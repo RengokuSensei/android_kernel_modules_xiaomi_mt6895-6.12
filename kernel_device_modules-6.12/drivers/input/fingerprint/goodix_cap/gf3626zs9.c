@@ -65,6 +65,8 @@ struct gf_dev {
 	u8			*spi_rx_buf;
 };
 
+static struct gf_dev *g_gf_dev;
+
 static int gf_power_on(struct gf_dev *gf_dev)
 {
 	int ret;
@@ -74,39 +76,25 @@ static int gf_power_on(struct gf_dev *gf_dev)
 
 	if (gf_dev->vfp) {
 		ret = regulator_enable(gf_dev->vfp);
-		if (ret) {
+		if (ret)
 			dev_err(&gf_dev->spi->dev, "Failed to enable vfp: %d\n", ret);
-			return ret;
-		}
 	}
 
 	if (gf_dev->vibr) {
 		ret = regulator_enable(gf_dev->vibr);
-		if (ret) {
+		if (ret)
 			dev_err(&gf_dev->spi->dev, "Failed to enable vibr: %d\n", ret);
-			goto err_disable_vfp;
-		}
 	}
 
 	if (gf_dev->vufs18) {
 		ret = regulator_enable(gf_dev->vufs18);
-		if (ret) {
+		if (ret)
 			dev_err(&gf_dev->spi->dev, "Failed to enable vufs18: %d\n", ret);
-			goto err_disable_vibr;
-		}
 	}
 
 	gf_dev->power_enabled = true;
 	msleep(10);
 	return 0;
-
-err_disable_vibr:
-	if (gf_dev->vibr)
-		regulator_disable(gf_dev->vibr);
-err_disable_vfp:
-	if (gf_dev->vfp)
-		regulator_disable(gf_dev->vfp);
-	return ret;
 }
 
 static int gf_power_off(struct gf_dev *gf_dev)
@@ -191,27 +179,18 @@ static int gf_disable_irq(struct gf_dev *gf_dev)
 	return 0;
 }
 
-static ssize_t irq_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t gf_irq_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct gf_dev *gf_dev = dev_get_drvdata(dev);
 	int val = 0;
 
-	if (gf_dev && gpio_is_valid(gf_dev->irq_gpio))
+	if (gpio_is_valid(gf_dev->irq_gpio))
 		val = gpio_get_value(gf_dev->irq_gpio);
 
-	return sysfs_emit(buf, "%d\n", val);
+	return scnprintf(buf, PAGE_SIZE, "%d\n", val);
 }
 
-static DEVICE_ATTR_RO(irq);
-
-static struct attribute *gf_attributes[] = {
-	&dev_attr_irq.attr,
-	NULL,
-};
-
-static const struct attribute_group gf_attribute_group = {
-	.attrs = gf_attributes,
-};
+static DEVICE_ATTR(irq, 0444, gf_irq_show, NULL);
 
 static int gf_open(struct inode *inode, struct file *filp)
 {
@@ -285,9 +264,7 @@ static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	switch (cmd) {
 	case GF_IOC_INIT:
-		ret = gf_power_on(gf_dev);
-		if (ret)
-			break;
+		gf_power_on(gf_dev);
 		gf_hw_reset(gf_dev);
 		info = 0x01;
 		if (copy_to_user((void __user *)arg, &info, sizeof(info)))
@@ -372,11 +349,12 @@ static int gf_parse_dts(struct gf_dev *gf_dev)
 		gf_dev->irq_gpio = of_get_named_gpio(np, "fp-irq-gpio", 0);
 
 	if (gpio_is_valid(gf_dev->irq_gpio)) {
-		ret = devm_gpio_request_one(dev, gf_dev->irq_gpio, GPIOF_IN, "gf_irq_gpio");
+		ret = gpio_request(gf_dev->irq_gpio, "gf_irq_gpio");
 		if (ret) {
 			dev_err(dev, "Failed to request irq gpio: %d\n", ret);
 			return ret;
 		}
+		gpio_direction_input(gf_dev->irq_gpio);
 		gf_dev->irq = gpio_to_irq(gf_dev->irq_gpio);
 	} else {
 		gf_dev->irq = gf_dev->spi->irq;
@@ -384,44 +362,30 @@ static int gf_parse_dts(struct gf_dev *gf_dev)
 
 	gf_dev->reset_gpio = of_get_named_gpio(np, "fp-reset-gpio", 0);
 	if (gpio_is_valid(gf_dev->reset_gpio)) {
-		ret = devm_gpio_request_one(dev, gf_dev->reset_gpio, GPIOF_OUT_INIT_HIGH, "gf_reset_gpio");
+		ret = gpio_request(gf_dev->reset_gpio, "gf_reset_gpio");
 		if (ret) {
 			dev_err(dev, "Failed to request reset gpio: %d\n", ret);
+			if (gpio_is_valid(gf_dev->irq_gpio))
+				gpio_free(gf_dev->irq_gpio);
 			return ret;
 		}
+		gpio_direction_output(gf_dev->reset_gpio, 1);
 	}
 
-	gf_dev->vfp = devm_regulator_get_optional(dev, "vfp");
-	if (IS_ERR(gf_dev->vfp)) {
-		ret = PTR_ERR(gf_dev->vfp);
-		if (ret == -EPROBE_DEFER)
-			return ret;
+	gf_dev->vfp = regulator_get(dev, "vfp");
+	if (IS_ERR(gf_dev->vfp))
 		gf_dev->vfp = NULL;
-	}
 
-	gf_dev->vibr = devm_regulator_get_optional(dev, "vibr");
-	if (IS_ERR(gf_dev->vibr)) {
-		ret = PTR_ERR(gf_dev->vibr);
-		if (ret == -EPROBE_DEFER)
-			return ret;
+	gf_dev->vibr = regulator_get(dev, "vibr");
+	if (IS_ERR(gf_dev->vibr))
 		gf_dev->vibr = NULL;
-	}
 
-	gf_dev->vufs18 = devm_regulator_get_optional(dev, "vufs18");
-	if (IS_ERR(gf_dev->vufs18)) {
-		ret = PTR_ERR(gf_dev->vufs18);
-		if (ret == -EPROBE_DEFER)
-			return ret;
+	gf_dev->vufs18 = regulator_get(dev, "vufs18");
+	if (IS_ERR(gf_dev->vufs18))
 		gf_dev->vufs18 = NULL;
-	}
 
 	gf_dev->pinctrl = devm_pinctrl_get(dev);
-	if (IS_ERR(gf_dev->pinctrl)) {
-		ret = PTR_ERR(gf_dev->pinctrl);
-		if (ret == -EPROBE_DEFER)
-			return ret;
-		gf_dev->pinctrl = NULL;
-	} else {
+	if (!IS_ERR(gf_dev->pinctrl)) {
 		gf_dev->pin_default = pinctrl_lookup_state(gf_dev->pinctrl, "default");
 		gf_dev->pin_reset_high = pinctrl_lookup_state(gf_dev->pinctrl, "reset_high");
 		gf_dev->pin_reset_low = pinctrl_lookup_state(gf_dev->pinctrl, "reset_low");
@@ -444,40 +408,44 @@ static int gf_probe(struct spi_device *spi)
 	struct gf_dev *gf_dev;
 	int ret;
 
-	gf_dev = devm_kzalloc(&spi->dev, sizeof(*gf_dev), GFP_KERNEL);
+	gf_dev = kzalloc(sizeof(*gf_dev), GFP_KERNEL);
 	if (!gf_dev)
 		return -ENOMEM;
 
 	gf_dev->spi = spi;
 	spi_set_drvdata(spi, gf_dev);
 
-	gf_dev->spi_tx_buf = devm_kzalloc(&spi->dev, GF_MAX_BUFFER_SIZE, GFP_KERNEL);
-	if (!gf_dev->spi_tx_buf)
-		return -ENOMEM;
+	gf_dev->spi_tx_buf = kzalloc(GF_MAX_BUFFER_SIZE, GFP_KERNEL);
+	if (!gf_dev->spi_tx_buf) {
+		ret = -ENOMEM;
+		goto err_free_dev;
+	}
 
-	gf_dev->spi_rx_buf = devm_kzalloc(&spi->dev, GF_MAX_BUFFER_SIZE, GFP_KERNEL);
-	if (!gf_dev->spi_rx_buf)
-		return -ENOMEM;
+	gf_dev->spi_rx_buf = kzalloc(GF_MAX_BUFFER_SIZE, GFP_KERNEL);
+	if (!gf_dev->spi_rx_buf) {
+		ret = -ENOMEM;
+		goto err_free_tx_buf;
+	}
 
 	mutex_init(&gf_dev->buf_lock);
 	mutex_init(&gf_dev->frame_lock);
 
 	ret = gf_parse_dts(gf_dev);
 	if (ret)
-		goto err_destroy_mutex;
+		goto err_free_rx_buf;
 
 	spi->mode = SPI_MODE_0;
 	spi->bits_per_word = 8;
 	ret = spi_setup(spi);
 	if (ret) {
 		dev_err(&spi->dev, "spi_setup failed: %d\n", ret);
-		goto err_destroy_mutex;
+		goto err_free_gpios;
 	}
 
 	ret = alloc_chrdev_region(&gf_dev->devno, 0, 1, GF_DEV_NAME);
 	if (ret) {
 		dev_err(&spi->dev, "alloc_chrdev_region failed: %d\n", ret);
-		goto err_destroy_mutex;
+		goto err_free_gpios;
 	}
 
 	cdev_init(&gf_dev->cdev, &gf_fops);
@@ -502,7 +470,7 @@ static int gf_probe(struct spi_device *spi)
 		goto err_destroy_class;
 	}
 
-	gf_dev->input_dev = devm_input_allocate_device(&spi->dev);
+	gf_dev->input_dev = input_allocate_device();
 	if (gf_dev->input_dev) {
 		gf_dev->input_dev->name = GF_DRIVER_NAME;
 		set_bit(EV_KEY, gf_dev->input_dev->evbit);
@@ -513,31 +481,33 @@ static int gf_probe(struct spi_device *spi)
 		ret = input_register_device(gf_dev->input_dev);
 		if (ret) {
 			dev_err(&spi->dev, "input_register_device failed: %d\n", ret);
+			input_free_device(gf_dev->input_dev);
 			gf_dev->input_dev = NULL;
 		}
 	}
 
 	if (gf_dev->irq > 0) {
-		ret = devm_request_threaded_irq(&spi->dev, gf_dev->irq, NULL, gf_irq_handler,
-						IRQF_TRIGGER_RISING | IRQF_ONESHOT,
-						GF_DRIVER_NAME, gf_dev);
+		ret = request_threaded_irq(gf_dev->irq, NULL, gf_irq_handler,
+					   IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+					   GF_DRIVER_NAME, gf_dev);
 		if (ret) {
-			dev_err(&spi->dev, "devm_request_threaded_irq failed: %d\n", ret);
-			goto err_destroy_device;
+			dev_err(&spi->dev, "request_threaded_irq failed: %d\n", ret);
+			goto err_unregister_input;
 		}
 		gf_dev->irq_enabled = true;
 	}
 
-	ret = sysfs_create_group(&spi->dev.kobj, &gf_attribute_group);
-	if (ret) {
-		dev_err(&spi->dev, "Failed to create sysfs attribute group: %d\n", ret);
-		goto err_destroy_device;
-	}
+	ret = device_create_file(&spi->dev, &dev_attr_irq);
+	if (ret)
+		dev_warn(&spi->dev, "Failed to create sysfs attribute irq: %d\n", ret);
 
+	g_gf_dev = gf_dev;
 	dev_info(&spi->dev, "GF3626ZS9 fingerprint driver probed successfully\n");
 	return 0;
 
-err_destroy_device:
+err_unregister_input:
+	if (gf_dev->input_dev)
+		input_unregister_device(gf_dev->input_dev);
 	device_destroy(gf_dev->class, gf_dev->devno);
 err_destroy_class:
 	class_destroy(gf_dev->class);
@@ -545,9 +515,25 @@ err_del_cdev:
 	cdev_del(&gf_dev->cdev);
 err_unregister_devno:
 	unregister_chrdev_region(gf_dev->devno, 1);
-err_destroy_mutex:
+err_free_gpios:
+	if (gpio_is_valid(gf_dev->reset_gpio))
+		gpio_free(gf_dev->reset_gpio);
+	if (gpio_is_valid(gf_dev->irq_gpio))
+		gpio_free(gf_dev->irq_gpio);
+	if (gf_dev->vfp)
+		regulator_put(gf_dev->vfp);
+	if (gf_dev->vibr)
+		regulator_put(gf_dev->vibr);
+	if (gf_dev->vufs18)
+		regulator_put(gf_dev->vufs18);
+err_free_rx_buf:
 	mutex_destroy(&gf_dev->buf_lock);
 	mutex_destroy(&gf_dev->frame_lock);
+	kfree(gf_dev->spi_rx_buf);
+err_free_tx_buf:
+	kfree(gf_dev->spi_tx_buf);
+err_free_dev:
+	kfree(gf_dev);
 	return ret;
 }
 
@@ -558,7 +544,13 @@ static void gf_remove(struct spi_device *spi)
 	if (!gf_dev)
 		return;
 
-	sysfs_remove_group(&spi->dev.kobj, &gf_attribute_group);
+	device_remove_file(&spi->dev, &dev_attr_irq);
+
+	if (gf_dev->irq > 0)
+		free_irq(gf_dev->irq, gf_dev);
+
+	if (gf_dev->input_dev)
+		input_unregister_device(gf_dev->input_dev);
 
 	device_destroy(gf_dev->class, gf_dev->devno);
 	class_destroy(gf_dev->class);
@@ -567,8 +559,26 @@ static void gf_remove(struct spi_device *spi)
 
 	gf_power_off(gf_dev);
 
+	if (gpio_is_valid(gf_dev->reset_gpio))
+		gpio_free(gf_dev->reset_gpio);
+	if (gpio_is_valid(gf_dev->irq_gpio))
+		gpio_free(gf_dev->irq_gpio);
+
+	if (gf_dev->vfp)
+		regulator_put(gf_dev->vfp);
+	if (gf_dev->vibr)
+		regulator_put(gf_dev->vibr);
+	if (gf_dev->vufs18)
+		regulator_put(gf_dev->vufs18);
+
 	mutex_destroy(&gf_dev->buf_lock);
 	mutex_destroy(&gf_dev->frame_lock);
+
+	kfree(gf_dev->spi_rx_buf);
+	kfree(gf_dev->spi_tx_buf);
+	kfree(gf_dev);
+
+	g_gf_dev = NULL;
 }
 
 static const struct of_device_id gf_of_match[] = {
