@@ -660,10 +660,18 @@ static int pm_callback_power_on_nolock(struct kbase_device *kbdev)
 		}
 		void __iomem *mfgrpc = ioremap(0x13f91000, 0x1000);
 		if (mfgrpc) {
-			u32 rpc_en = readl(mfgrpc + 0x40);
-			u32 rpc_rdy = readl(mfgrpc + 0x48);
+			u32 rpc_en_pre = readl(mfgrpc + 0x40);
+			u32 rpc_rdy_pre = readl(mfgrpc + 0x48);
 
-			dev_info(kbdev->dev, "GPU PM: MFGRPC en=0x%08x rdy=0x%08x\n", rpc_en, rpc_rdy);
+			/* Clear MFGRPC AXI bus protect for MFG1 (bits 16..19 and bits 0..3) */
+			writel(0x000f000f, mfgrpc + 0x44);
+			mb();
+			udelay(10);
+
+			u32 rpc_en_post = readl(mfgrpc + 0x40);
+			u32 rpc_rdy_post = readl(mfgrpc + 0x48);
+			dev_info(kbdev->dev, "GPU PM: MFGRPC PRE en=0x%08x rdy=0x%08x | POST-CLR en=0x%08x rdy=0x%08x\n",
+				rpc_en_pre, rpc_rdy_pre, rpc_en_post, rpc_rdy_post);
 			iounmap(mfgrpc);
 		}
 	}

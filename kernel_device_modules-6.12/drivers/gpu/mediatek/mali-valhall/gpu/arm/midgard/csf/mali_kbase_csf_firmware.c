@@ -604,9 +604,11 @@ static void boot_csf_firmware(struct kbase_device *kbdev)
 		void __iomem *mfgpll = ioremap(0x13fa0000, 0x1000);
 		void __iomem *mfg_top = ioremap(0x13fbf000, 0x1000);
 		void __iomem *spm = ioremap(0x1c001000, 0x1000);
+		void __iomem *mfgrpc = ioremap(0x13f91000, 0x1000);
 		u32 mfg_sel0 = 0, mfg_sel1 = 0, mfg_ref = 0, mfgsc_ref = 0;
 		u32 pll_con0 = 0, pll_con1 = 0, pllsc_con0 = 0, pllsc_con1 = 0;
 		u32 bg3d_sta = 0, qch_con = 0, spm_pwr = 0, spm_pwr2 = 0;
+		u32 rpc_en = 0, rpc_rdy = 0;
 		struct clk *c_sel0 = devm_clk_get_optional(kbdev->dev, "mfg_sel_0");
 		struct clk *c_sel1 = devm_clk_get_optional(kbdev->dev, "mfg_sel_1");
 		struct clk *c_bg3d = devm_clk_get_optional(kbdev->dev, "mfgcfg_bg3d");
@@ -638,6 +640,15 @@ static void boot_csf_firmware(struct kbase_device *kbdev)
 			spm_pwr2 = readl(spm + 0xf40);
 			iounmap(spm);
 		}
+		if (mfgrpc) {
+			/* Defense-in-depth: Ensure MFGRPC AXI bus protect is cleared right before MCU boot */
+			writel(0x000f000f, mfgrpc + 0x44);
+			mb();
+			udelay(10);
+			rpc_en = readl(mfgrpc + 0x40);
+			rpc_rdy = readl(mfgrpc + 0x48);
+			iounmap(mfgrpc);
+		}
 
 		dev_info(kbdev->dev,
 			"[CSF DIAG CLK PRE_MCU] CCF RATES: mfg_sel_0=%lu Hz, mfg_sel_1=%lu Hz, mfgcfg_bg3d=%lu Hz\n",
@@ -652,8 +663,8 @@ static void boot_csf_firmware(struct kbase_device *kbdev)
 			pll_con0, pll_con1, pllsc_con0, pllsc_con1,
 			bg3d_sta, (bg3d_sta & 1) ? "GATED" : "UNGATED", qch_con);
 		dev_info(kbdev->dev,
-			"[CSF DIAG CLK PRE_MCU] SPM PWR: PWR_STATUS=0x%08x PWR_STATUS_2ND=0x%08x\n",
-			spm_pwr, spm_pwr2);
+			"[CSF DIAG CLK PRE_MCU] SPM PWR: PWR_STATUS=0x%08x PWR_STATUS_2ND=0x%08x | MFGRPC: en=0x%08x rdy=0x%08x\n",
+			spm_pwr, spm_pwr2, rpc_en, rpc_rdy);
 
 		if (mali_skip_mcu_on_clk_fail) {
 			if (!mfg_sel0 || !mfg_sel1 || !(pll_con0 & BIT(0)) || !(pllsc_con0 & BIT(0))) {
