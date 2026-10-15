@@ -513,6 +513,14 @@ static void mt6895_apply_stock_hw_sequences(struct kbase_device *kbdev)
 			writel(val, mfg_rpc + 0x1034);
 			dev_info(kbdev->dev, "[CSF HW-SEQ] DCM: MFG_RPC_AO_CLK_CFG(0x13F91034)=0x%08x\n",
 				readl(mfg_rpc + 0x1034));
+
+			/* Clear MFGRPC AXI bus protect for MFG1 (bits 16..19 and bits 0..3) */
+			writel(0x000f000f, mfg_rpc + 0x1044);
+			mb();
+			udelay(10);
+			dev_info(kbdev->dev, "[CSF HW-SEQ] MFGRPC AXI PROT cleared: en=0x%08x rdy=0x%08x\n",
+				readl(mfg_rpc + 0x1040), readl(mfg_rpc + 0x1048));
+
 			iounmap(mfg_rpc);
 		} else {
 			dev_err(kbdev->dev, "[CSF HW-SEQ] Failed to ioremap MFG_RPC (0x13f90000)\n");
