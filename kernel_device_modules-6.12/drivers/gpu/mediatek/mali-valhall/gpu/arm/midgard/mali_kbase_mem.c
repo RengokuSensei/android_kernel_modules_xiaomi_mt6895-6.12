@@ -1539,6 +1539,25 @@ int kbase_gpu_mmap(struct kbase_context *kctx, struct kbase_va_region *reg, u64 
 	if (err)
 		return err;
 
+	if (kctx->as_nr >= 1) {
+		static atomic_t map_count = ATOMIC_INIT(0);
+		int cnt = atomic_inc_return(&map_count);
+
+		if (cnt <= 64) {
+			dev_info(kctx->kbdev->dev,
+				"[CSF REGION MAP #%d] as=%d VA=0x%llx..0x%llx (%zu pages) flags=0x%lx (SHARE_IN=%d SHARE_BOTH=%d CACHED=%d MEMATTR=%u strip_share=%u)\n",
+				cnt, kctx->as_nr,
+				(u64)reg->start_pfn << PAGE_SHIFT,
+				(u64)(reg->start_pfn + nr_pages) << PAGE_SHIFT,
+				nr_pages, reg->flags,
+				!!(reg->flags & KBASE_REG_SHARE_IN),
+				!!(reg->flags & KBASE_REG_SHARE_BOTH),
+				!!(reg->flags & KBASE_REG_GPU_CACHED),
+				(u32)KBASE_REG_MEMATTR_VALUE(reg->flags),
+				mali_strip_share);
+		}
+	}
+
 	alloc = reg->gpu_alloc;
 	group_id = alloc->group_id;
 

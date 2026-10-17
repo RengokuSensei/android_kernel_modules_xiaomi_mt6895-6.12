@@ -129,6 +129,7 @@ static inline size_t strlcpy(char *dest, const char *src, size_t size)
 #define KBASE_MEM_GROUP_SINK BASE_MEM_GROUP_DEFAULT
 
 extern bool mali_force_dma32;
+extern uint mali_strip_share;
 
 /*
  * Kernel-side Base (KBase) APIs

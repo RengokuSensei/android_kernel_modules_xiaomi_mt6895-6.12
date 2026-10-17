@@ -1384,6 +1384,25 @@ int kbase_mem_umm_map(struct kbase_context *kctx,
 		gwt_mask = ~KBASE_REG_GPU_WR;
 #endif
 
+	if (kctx->as_nr >= 1) {
+		static atomic_t umm_count = ATOMIC_INIT(0);
+		int ucnt = atomic_inc_return(&umm_count);
+
+		if (ucnt <= 32) {
+			dev_info(kctx->kbdev->dev,
+				"[CSF UMM MAP #%d] as=%d VA=0x%llx (%zu pages) flags=0x%lx (SHARE_IN=%d SHARE_BOTH=%d CACHED=%d MEMATTR=%u strip_share=%u)\n",
+				ucnt, kctx->as_nr,
+				(u64)reg->start_pfn << PAGE_SHIFT,
+				kbase_reg_current_backed_size(reg),
+				reg->flags,
+				!!(reg->flags & KBASE_REG_SHARE_IN),
+				!!(reg->flags & KBASE_REG_SHARE_BOTH),
+				!!(reg->flags & KBASE_REG_GPU_CACHED),
+				(u32)KBASE_REG_MEMATTR_VALUE(reg->flags),
+				mali_strip_share);
+		}
+	}
+
 	err = kbase_mmu_insert_pages(kctx->kbdev,
 				     &kctx->mmu,
 				     reg->start_pfn,

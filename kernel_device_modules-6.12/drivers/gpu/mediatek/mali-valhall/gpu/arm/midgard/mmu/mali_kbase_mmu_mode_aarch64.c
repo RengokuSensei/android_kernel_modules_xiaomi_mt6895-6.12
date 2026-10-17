@@ -129,12 +129,14 @@ static u64 get_mmu_flags(unsigned long flags)
 	/* nx if requested */
 	mmu_flags |= (flags & KBASE_REG_GPU_NX) ? ENTRY_NX_BIT : 0;
 
-	if (flags & KBASE_REG_SHARE_BOTH) {
-		/* inner and outer shareable */
-		mmu_flags |= SHARE_BOTH_BITS;
-	} else if (flags & KBASE_REG_SHARE_IN) {
-		/* inner shareable coherency */
-		mmu_flags |= SHARE_INNER_BITS;
+	if (!mali_strip_share) {
+		if (flags & KBASE_REG_SHARE_BOTH) {
+			/* inner and outer shareable */
+			mmu_flags |= SHARE_BOTH_BITS;
+		} else if (flags & KBASE_REG_SHARE_IN) {
+			/* inner shareable coherency */
+			mmu_flags |= SHARE_INNER_BITS;
+		}
 	}
 
 	return mmu_flags;
