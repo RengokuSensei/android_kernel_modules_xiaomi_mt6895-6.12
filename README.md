@@ -8,6 +8,30 @@
 
 ---
 
+## Current Condition
+
+As of **Run 86** (October 2026), the porting progress on physical hardware (**POCO X4 GT / Redmi K50i / Redmi Note 11T Pro — `xaga`**, MediaTek Dimensity 8100 / `MT6895`) running **Android 16 (AresOS)** on Linux kernel **6.12 GKI**:
+
+### 🟢 Fully Operational on Device
+- **Core Kernel & Userspace Boot:** Linux 6.12 GKI boots completely into Android 16 userspace; `init`, `zygote64`, `system_server`, `DisplayManagerService`, and `hwcomposer` are fully running.
+- **Hardware Cryptography & Security:** Microtrust Beanpod TEE 520 (`isee`) is active, handling KeyMint and seamlessly decrypting File-Based Encryption (FBE) on the `/data` partition during boot.
+- **Display Subsystem:** MTK DRM v2, DSI, DSC, and dual L16 panels (`panel-l16`) initialize and display frames.
+- **Storage Subsystem:** UFS 3.1 storage is stable with `mt6363_vufs12` and `mt6363_vufs18` always-on power regulators, eliminating all I/O errors.
+- **Peripherals & Drivers:** Goodix capacitive fingerprint (`goodix_cap`) ported to 6.12 SPI APIs; touch controller (`nt36672c`), haptics, battery gauge (`bq28z610`), dual charge pumps (`ln8000`/`sc8551`), and platform power management are wired.
+- **Mali CSF Infrastructure:** Arm Mali Valhall CSF driver suite (`mali_kbase_mt6895.ko`, `mali_mgm.ko`, `mali_prot_alloc.ko`) compiles clean, exposes `/dev/mali0`, loads CSF firmware into MCU address space (AS0), and integrates with MediaTek DVFS (`gpufreq_v2`) and Gas Engine (`ged.ko`).
+
+### 🟡 Active Focus (Run 86)
+- **Mali Valhall GPU Hardware Coherency & 3D Acceleration:**
+  - **Identified Issue:** SurfaceFlinger encountered `GPU_SHAREABILITY_FAULT (0x88)` in AS1 due to a hardcoded `config_system_coherency = 31` (`COHERENCY_NONE`) override that bypassed device tree configuration, forced `0x1f` into the `COHERENCY_ENABLE` register, downgraded CSF queues to non-cacheable write-combine, disabled Outer-Shareable page table walks (`TRANSCFG=0x42000006`), and prevented `L2_MMU_CONFIG_ALLOW_SNOOP_DISPARITY`.
+  - **Run 86 Resolution:**
+    1. Replaced hardcoded coherency override with hardware-native **`COHERENCY_ACE_LITE`** (`mode 0`), matching Dimensity 8100's hardware `COHERENCY_FEATURES = 0x1`.
+    2. Added `system-coherency = <0>;` to `mali@13000000` in `mt6895.dts` (matching stock vendor `init.mali_kbase.rc` and MT6991).
+    3. Enabled `L2_MMU_CONFIG_ALLOW_SNOOP_DISPARITY` (`BIT(23)`) for `COHERENCY_ACE_LITE`.
+    4. Maintained MT6895 ACP MMIO power-on sequences (`mali_hw_seq_mask=7`: registers `0x168`, `0x8E0..0x928`) to synchronize CPU and GPU shareable cache lines.
+    5. Resulting configuration enables Outer-Shareable PTW (`TRANSCFG=0x62000006`) and coherent user-space queue mappings for complete SurfaceFlinger hardware-accelerated 3D rendering.
+
+---
+
 ## Overview
 
 **Android 6.12 Out-of-Tree Kernel Modules Port Tree** for `xaga` (Redmi Note 11T Pro / POCO X4 GT / Redmi K50i, MediaTek Dimensity 8100 / `MT6895`):
