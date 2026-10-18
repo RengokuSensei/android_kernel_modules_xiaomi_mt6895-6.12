@@ -5060,9 +5060,9 @@ void kbase_device_debugfs_term(struct kbase_device *kbdev)
 #endif /* CONFIG_MALI_MTK_DEBUG */
 #endif /* MALI_KBASE_BUILD */
 
-static u32 config_system_coherency;
+static u32 config_system_coherency = (u32)-1;
 module_param(config_system_coherency, uint, 0444);
-MODULE_PARM_DESC(config_system_coherency, ".");
+MODULE_PARM_DESC(config_system_coherency, "Override system coherency: 0=ACE_LITE, 1=ACE, 31=NONE");
 
 int kbase_device_coherency_init(struct kbase_device *kbdev)
 {
@@ -5090,16 +5090,18 @@ int kbase_device_coherency_init(struct kbase_device *kbdev)
 
 #endif /* CONFIG_OF */
 
-	kbdev->system_coherency = COHERENCY_NONE;
+	/* Default to ACE_LITE if supported by hardware, otherwise NONE */
+	if (supported_coherency_bitmap & COHERENCY_FEATURE_BIT(COHERENCY_ACE_LITE))
+		kbdev->system_coherency = COHERENCY_ACE_LITE;
+	else
+		kbdev->system_coherency = COHERENCY_NONE;
 
 	/* device tree may override the coherency */
 #if IS_ENABLED(CONFIG_OF)
 	coherency_override_dts = of_get_property(kbdev->dev->of_node,
 						"system-coherency",
 						NULL);
-	config_system_coherency = 31; // force disable coherency.
-	if (coherency_override_dts && config_system_coherency == 0) {
-
+	if (coherency_override_dts) {
 		override_coherency = be32_to_cpup(coherency_override_dts);
 
 #if MALI_USE_CSF && !IS_ENABLED(CONFIG_MALI_NO_MALI)
@@ -5130,9 +5132,28 @@ int kbase_device_coherency_init(struct kbase_device *kbdev)
 
 #endif /* CONFIG_OF */
 
+	/* Module parameter override if explicitly specified */
+	if (config_system_coherency != (u32)-1) {
+		if ((config_system_coherency <= COHERENCY_NONE) &&
+		    (supported_coherency_bitmap & COHERENCY_FEATURE_BIT(config_system_coherency))) {
+			kbdev->system_coherency = config_system_coherency;
+			dev_info(kbdev->dev,
+				"Using coherency mode %u set from module param\n",
+				config_system_coherency);
+		} else {
+			dev_warn(kbdev->dev,
+				"Ignoring unsupported coherency mode %u set from module param\n",
+				config_system_coherency);
+		}
+	}
+
 	kbdev->gpu_props.props.raw_props.coherency_mode =
 		kbdev->system_coherency;
 	config_system_coherency = kbdev->system_coherency;
+
+	dev_info(kbdev->dev,
+		"[CSF DIAG COH] Initialized system_coherency=%u (supported_bitmap=0x%x)\n",
+		kbdev->system_coherency, supported_coherency_bitmap);
 
 	return 0;
 }

@@ -119,13 +119,18 @@ int kbase_set_mmu_quirks(struct kbase_device *kbdev)
 
 	kbdev->hw_quirks_mmu = mmu_config;
 
-	if (kbdev->system_coherency == COHERENCY_ACE) {
+	if (kbdev->system_coherency == COHERENCY_ACE ||
+	    kbdev->system_coherency == COHERENCY_ACE_LITE) {
 		/* Allow memory configuration disparity to be ignored,
 		* we optimize the use of shared memory and thus we
 		* expect some disparity in the memory configuration.
 		*/
 		kbdev->hw_quirks_mmu |= L2_MMU_CONFIG_ALLOW_SNOOP_DISPARITY;
 	}
+
+	dev_info(kbdev->dev, "[CSF DIAG L2_MMU] Configured hw_quirks_mmu=0x%08x (SNOOP_DISPARITY=%s)\n",
+		 kbdev->hw_quirks_mmu,
+		 (kbdev->hw_quirks_mmu & L2_MMU_CONFIG_ALLOW_SNOOP_DISPARITY) ? "ENABLED" : "DISABLED");
 
 	return 0;
 }

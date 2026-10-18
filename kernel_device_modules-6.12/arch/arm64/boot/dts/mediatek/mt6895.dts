@@ -10180,6 +10180,7 @@
 		power-domains = <&scpsys MT6895_POWER_DOMAIN_MFG1>;
 		operating-points-v2 = <&gpu_mali_opp>;
 		#cooling-cells = <2>;
+		system-coherency = <0>;
 		ged-supply = <&ged>;
 		_vstack-supply = <&mt6368_vbuck2>;
 		_vcore-supply = <&mt6363_vbuck2>;

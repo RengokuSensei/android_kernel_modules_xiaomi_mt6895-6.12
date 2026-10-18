@@ -411,6 +411,10 @@ void kbase_mmu_hw_configure(struct kbase_device *kbdev, struct kbase_as *as)
 #else
 	u32 mmu_raw_after_wait = mmu_raw_after_cmd;
 #endif
+	dev_info(kbdev->dev, "[CSF DIAG AS%u_CONFIG] TRANSCFG=0x%016llx (PTW_SH_OS=%s) MEMATTR=0x%016llx\n",
+		 as->number, transcfg,
+		 (transcfg & AS_TRANSCFG_PTW_SH_OS) ? "YES" : "NO",
+		 current_setup->memattr);
 	dev_info(kbdev->dev, "[CSF DIAG UPDATE_TRACE] as=%d MMU_RAW: before_cmd=0x%08x after_cmd=0x%08x after_wait=0x%08x\n",
 		 as->number, mmu_raw_before_cmd, mmu_raw_after_cmd, mmu_raw_after_wait);
 }
