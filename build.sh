@@ -150,7 +150,7 @@ else
     fi
 fi
 
-INC="-I$M/drivers/gpu/mediatek/gpueb -I$M/drivers/misc/mediatek/blocktag -I$M -I$M/drivers -I$M/include -I$M/include/soc/mediatek -I$M/drivers/clk/mediatek -I$M/drivers/gpu/mediatek/gpufreq -I$M/drivers/gpu/mediatek/gpueb/include -I$M/drivers/gpu/mediatek/mt-plat -I$M/drivers/misc/mediatek/typec/tcpc/inc -I$M/drivers/misc/mediatek/mtk-interconnect -I$M/drivers/misc/mediatek/include -I$M/drivers/misc/mediatek/include/mt-plat -I$M/drivers/misc/mediatek/mminfra -I$M/drivers/misc/mediatek/power_throttling -I$M/drivers/misc/mediatek/dcm -I$M/drivers/misc/mediatek/dcm/include -I$M/drivers/misc/mediatek/mdpm -I$M/drivers/misc/mediatek/aee/mrdump -I$M/drivers/misc/mediatek/aee/aed -I$M/drivers/misc/mediatek/mcupm/include -I$M/drivers/misc/mediatek/pbm -I$M/drivers/misc/mediatek/sda/include -I$M/drivers/misc/mediatek/mdp -I$M/drivers/misc/mediatek/smi -I$M/drivers/misc/mediatek/mmdvfs -I$M/drivers/misc/mediatek/qos -I$M/drivers/misc/mediatek/mm_monitor -I$M/drivers/misc/mediatek/mmp -I$M/drivers/misc/mediatek/vcp/rv -I$M/drivers/misc/mediatek/vcp/rv_v2 -I$M/drivers/misc/mediatek/vcp/include -I$M/drivers/misc/mediatek/iommu -I$M/drivers/iommu/arm/arm-smmu-v3 -I$M/drivers/ufs -I$M/drivers/iommu -I$M/drivers/memory -I$M/drivers/usb/mtu3 -I$M/drivers/char/rpmb -I$M/drivers/char/rpmb/core -I$M/drivers/char/rpmb/drrpmb_gp/public -I$M/drivers/mmc/host -I$M/drivers/power/supply -I$M/drivers/tee/gud/700/MobiCoreDriver -I$M/drivers/tee/gud/700/MobiCoreDriver/public -I$M/drivers/dma-buf/heaps -I$M/drivers/media/platform/mtk-vcodec -I$M/drivers/gpu/drm/mediatek/dpc -I$M/drivers/gpu/mediatek/gpufreq/v2 -I$M/drivers/gpu/mediatek/gpufreq -I$K/drivers/devfreq -I$K/drivers/mmc/host -I$K/drivers/tty/serial/8250 -I$K/drivers/dma -I$K/drivers/ufs/host -I$K/drivers/ufs/core -I$K/drivers/usb/typec -I$K/kernel -I$K/include -I$M/drivers/misc/mediatek/slbc -I$M/drivers/misc/mediatek/geniezone/include -I$M/drivers/misc/mediatek/geniezone/public -I$M/drivers/misc/mediatek/trusted_mem/public -I$M/drivers/tee/teei/520/common/include -I$M/drivers/tee/teei/520/public -I$M/drivers/tee/teei/520/tz_driver/include"
+INC="-I$M/drivers/gpu/mediatek/gpueb -I$M/drivers/misc/mediatek/blocktag -I$M -I$M/drivers -I$M/include -I$M/include/soc/mediatek -I$M/drivers/clk/mediatek -I$M/drivers/gpu/mediatek/gpufreq -I$M/drivers/gpu/mediatek/gpueb/include -I$M/drivers/gpu/mediatek/mt-plat -I$M/drivers/misc/mediatek/typec/tcpc/inc -I$M/drivers/misc/mediatek/mtk-interconnect -I$M/drivers/misc/mediatek/include -I$M/drivers/misc/mediatek/include/mt-plat -I$M/drivers/misc/mediatek/mminfra -I$M/drivers/misc/mediatek/power_throttling -I$M/drivers/misc/mediatek/dcm -I$M/drivers/misc/mediatek/dcm/include -I$M/drivers/misc/mediatek/mdpm -I$M/drivers/misc/mediatek/aee/mrdump -I$M/drivers/misc/mediatek/aee/aed -I$M/drivers/misc/mediatek/mcupm/include -I$M/drivers/misc/mediatek/pbm -I$M/drivers/misc/mediatek/sda/include -I$M/drivers/misc/mediatek/mdp -I$M/drivers/misc/mediatek/smi -I$M/drivers/misc/mediatek/mmdvfs -I$M/drivers/misc/mediatek/qos -I$M/drivers/misc/mediatek/mm_monitor -I$M/drivers/misc/mediatek/mmp -I$M/drivers/misc/mediatek/vcp/rv -I$M/drivers/misc/mediatek/vcp/rv_v2 -I$M/drivers/misc/mediatek/vcp/include -I$M/drivers/misc/mediatek/iommu -I$M/drivers/iommu/arm/arm-smmu-v3 -I$M/drivers/ufs -I$M/drivers/iommu -I$M/drivers/memory -I$M/drivers/usb/mtu3 -I$M/drivers/char/rpmb -I$M/drivers/char/rpmb/core -I$M/drivers/char/rpmb/drrpmb_gp/public -I$M/drivers/mmc/host -I$M/drivers/power/supply -I$M/drivers/tee/gud/700/MobiCoreDriver -I$M/drivers/tee/gud/700/MobiCoreDriver/public -I$M/drivers/dma-buf/heaps -I$M/drivers/media/platform/mtk-vcodec -I$M/drivers/gpu/drm/mediatek/dpc -I$M/drivers/gpu/mediatek/gpufreq/v2 -I$M/drivers/gpu/mediatek/gpufreq -I$K/drivers/devfreq -I$K/drivers/mmc/host -I$K/drivers/tty/serial/8250 -I$K/drivers/dma -I$K/drivers/ufs/host -I$K/drivers/ufs/core -I$K/drivers/usb/typec -I$K/kernel -I$K/include -I$K/drivers/thermal -I$M/drivers/thermal -I$M/drivers/thermal/mediatek -I$M/drivers/misc/mediatek/slbc -I$M/drivers/misc/mediatek/geniezone/include -I$M/drivers/misc/mediatek/geniezone/public -I$M/drivers/misc/mediatek/trusted_mem/public -I$M/drivers/tee/teei/520/common/include -I$M/drivers/tee/teei/520/public -I$M/drivers/tee/teei/520/tz_driver/include"
 
 
 # ---------------------------------------------------------------------------
@@ -433,6 +433,10 @@ pack_vendor() {
        "$OUT/drivers/iio/buffer/industrialio-triggered-buffer.ko" \
        "$OUT/drivers/iio/buffer/kfifo_buf.ko" \
        lib/modules/
+    if [ -f "$OUT/drivers/thermal/thermal-generic-adc.ko" ]; then
+        cp "$OUT/drivers/thermal/thermal-generic-adc.ko" lib/modules/
+        cp "$OUT/drivers/thermal/thermal-generic-adc.ko" lib/modules/thermal_generic_adc.ko
+    fi
     # Stage MediaTek vendor firmware blobs (GZ, TEE, SSPM, MCUPM, PI_IMG)
     local FW_DIR="$SCRIPT_DIR/vendor_firmware"
     if [ -d "$FW_DIR" ]; then
@@ -591,13 +595,13 @@ PYEOF
     # in probe and fails with 'failed to get usb role' if mtu3 has not
     # registered it yet (2026-08-11 real device).
     #
-    # Run 67: Exclude mali_kbase_mt6895 and mali_prot_alloc from modules.load
-    # so neither auto-loads at early boot. This guarantees a stable boot to the
-    # MI logo with live root ADB, allowing controlled insmod testing via adb shell.
+    # Run 87 (Option A): Include mali_mgm and mali_prot_alloc in modules.load
+    # so memory allocators auto-load at early boot. Exclude only mali_kbase_mt6895
+    # for safe, controlled live-streaming test via adb shell.
     python3 - <<'PYEOF' > modules.load.tmp
 import sys
 mods = [l.strip() for l in open('modules.load') if l.strip()]
-exclude = {'mali_kbase_mt6895', 'mali_prot_alloc', 'mali_kbase_mt6895.ko', 'mali_prot_alloc.ko'}
+exclude = {'mali_kbase_mt6895', 'mali_kbase_mt6895.ko'}
 mods = [m for m in mods if m not in exclude and m.removesuffix('.ko') not in exclude]
 present = [m for m in ['xhci-mtk-hcd-v2'] if m in mods]
 rest = [m for m in mods if m not in present]

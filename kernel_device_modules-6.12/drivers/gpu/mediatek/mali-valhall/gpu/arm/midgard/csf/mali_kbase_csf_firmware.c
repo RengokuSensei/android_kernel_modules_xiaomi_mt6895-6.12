@@ -48,6 +48,7 @@
 #include <asm/arch_timer.h>
 #include <linux/delay.h>
 #include <linux/highmem.h>
+#include <linux/io.h>
 #include <linux/mm.h>
 #include <linux/pfn.h>
 #include <linux/clk.h>
@@ -70,10 +71,15 @@ module_param_string(reload_fw_name, reload_fw_name, sizeof(reload_fw_name), 0644
 MODULE_PARM_DESC(reload_fw_name, "reloaded firmware image");
 
 /* The waiting time for firmware to boot */
-static unsigned int csf_firmware_boot_timeout_ms = 500;
-module_param(csf_firmware_boot_timeout_ms, uint, 0444);
+static unsigned int csf_firmware_boot_timeout_ms = 2000;
+module_param(csf_firmware_boot_timeout_ms, uint, 0644);
 MODULE_PARM_DESC(csf_firmware_boot_timeout_ms,
 		 "Maximum time to wait for firmware to boot.");
+
+static bool csf_diag_dual_read = true;
+module_param(csf_diag_dual_read, bool, 0644);
+MODULE_PARM_DESC(csf_diag_dual_read,
+		 "Enable dual-read diagnostic comparing cached vs write-combined physical memory on timeout");
 
 static bool mali_prepower_cores = false;
 module_param(mali_prepower_cores, bool, 0644);
@@ -448,6 +454,17 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 		u32 as_extra_lo = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_FAULTEXTRA_LO));
 		u32 as_extra_hi = kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_FAULTEXTRA_HI));
 
+		/* 100ms retry check in case GLB_VERSION arrived slightly late */
+		msleep(100);
+		if (shared_info) {
+			rmb();
+			fw_ver = READ_ONCE(shared_info[GLB_VERSION / 4]);
+		}
+		dev_err(kbdev->dev, "[CSF_DIAG] Post-100ms retry: cached GLB_VERSION=0x%08x MCU_STATUS=0x%08x GPU_FAULTSTATUS=0x%08x\n",
+			fw_ver,
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_STATUS)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_FAULTSTATUS)));
+
 		dev_err(kbdev->dev, "Timed out waiting for fw boot completion\n");
 		dev_err(kbdev->dev, "[CSF DIAG] JOB_IRQ: RAW=0x%08x STAT=0x%08x MASK=0x%08x (GLOBAL_IF=%d)\n",
 			job_raw, job_stat, job_mask, !!(job_raw & JOB_IRQ_GLOBAL_IF));
@@ -466,7 +483,7 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 		if (shared_info) {
 			u32 *out_block = shared_info + (0x3000 / 4);
 			rmb();
-			dev_err(kbdev->dev, "[CSF DIAG] MEM: GLB_VERSION=0x%08x [0..7]=0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
+			dev_err(kbdev->dev, "[CSF DIAG] CACHED MEM: GLB_VERSION=0x%08x [0..7]=0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
 				READ_ONCE(shared_info[GLB_VERSION / 4]),
 				shared_info[0], shared_info[1], shared_info[2], shared_info[3],
 				shared_info[4], shared_info[5], shared_info[6], shared_info[7]);
@@ -474,6 +491,23 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 				out_block[0], out_block[1], out_block[2], out_block[3],
 				out_block[4], out_block[5], out_block[6], out_block[7],
 				out_block[4]);
+		}
+
+		/* Dual-read diagnostic: compare cached kernel_map vs fresh Write-Combine alias */
+		if (csf_diag_dual_read && interface && interface->phys && interface->num_pages > 0) {
+			phys_addr_t phys = as_phys_addr_t(interface->phys[0]);
+			u32 *wc_ptr = memremap(phys, PAGE_SIZE, MEMREMAP_WC);
+
+			if (wc_ptr) {
+				rmb();
+				dev_err(kbdev->dev, "[CSF_DIAG] DUAL-READ WC_MAP [0..7]: 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
+					wc_ptr[0], wc_ptr[1], wc_ptr[2], wc_ptr[3],
+					wc_ptr[4], wc_ptr[5], wc_ptr[6], wc_ptr[7]);
+				memunmap(wc_ptr);
+			} else {
+				dev_err(kbdev->dev, "[CSF_DIAG] Failed to memremap physical address 0x%llx with MEMREMAP_WC\n",
+					(unsigned long long)phys);
+			}
 		}
 
 		/* Compare firmware memory checksum after timeout */
@@ -680,6 +714,18 @@ static void boot_csf_firmware(struct kbase_device *kbdev)
 	dev_info(kbdev->dev, "kbase [BREADCRUMB]: enabling CSF MCU...\n");
 	msleep(100);
 	kbase_csf_firmware_enable_mcu(kbdev);
+	dev_info(kbdev->dev, "[CSF_DIAG] MCU enabled (MCU_CONTROL written). Waiting up to %u ms for GLB_VERSION...\n",
+		 csf_firmware_boot_timeout_ms);
+	dev_info(kbdev->dev, "[CSF DIAG STAGE2 AS0 CONFIG] TRANSTAB=0x%08x%08x MEMATTR=0x%08x%08x TRANSCFG=0x%08x%08x\n",
+		 kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_TRANSTAB_HI)),
+		 kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_TRANSTAB_LO)),
+		 kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_MEMATTR_HI)),
+		 kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_MEMATTR_LO)),
+		 kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_TRANSCFG_HI)),
+		 kbase_reg_read(kbdev, MMU_AS_REG(MCU_AS_NR, AS_TRANSCFG_LO)));
+	dev_info(kbdev->dev, "[CSF DIAG STAGE2 L2_CONFIG] L2_MMU_CONFIG=0x%08x SNOOP_DISPARITY=%s\n",
+		 kbase_reg_read(kbdev, GPU_CONTROL_REG(L2_MMU_CONFIG)),
+		 (kbase_reg_read(kbdev, GPU_CONTROL_REG(L2_MMU_CONFIG)) & BIT(23)) ? "ENABLED" : "DISABLED");
 
 	mmu_raw = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_RAWSTAT));
 	mcu_ctrl = kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_CONTROL));
