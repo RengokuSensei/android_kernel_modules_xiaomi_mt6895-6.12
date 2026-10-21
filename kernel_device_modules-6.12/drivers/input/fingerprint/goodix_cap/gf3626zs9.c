@@ -339,6 +339,7 @@ static int gf_parse_dts(struct gf_dev *gf_dev)
 {
 	struct device *dev = &gf_dev->spi->dev;
 	struct device_node *np = dev->of_node;
+	struct device_node *fp_np = NULL;
 	int ret;
 
 	if (!np)
@@ -348,10 +349,21 @@ static int gf_parse_dts(struct gf_dev *gf_dev)
 	if (!gpio_is_valid(gf_dev->irq_gpio))
 		gf_dev->irq_gpio = of_get_named_gpio(np, "fp-irq-gpio", 0);
 
+	if (!gpio_is_valid(gf_dev->irq_gpio)) {
+		fp_np = of_find_node_by_name(NULL, "fingerprint");
+		if (fp_np) {
+			gf_dev->irq_gpio = of_get_named_gpio(fp_np, "fpc,gpio_irq", 0);
+			if (!gpio_is_valid(gf_dev->irq_gpio))
+				gf_dev->irq_gpio = of_get_named_gpio(fp_np, "fp-irq-gpio", 0);
+		}
+	}
+
 	if (gpio_is_valid(gf_dev->irq_gpio)) {
 		ret = gpio_request(gf_dev->irq_gpio, "gf_irq_gpio");
 		if (ret) {
 			dev_err(dev, "Failed to request irq gpio: %d\n", ret);
+			if (fp_np)
+				of_node_put(fp_np);
 			return ret;
 		}
 		gpio_direction_input(gf_dev->irq_gpio);
@@ -361,16 +373,24 @@ static int gf_parse_dts(struct gf_dev *gf_dev)
 	}
 
 	gf_dev->reset_gpio = of_get_named_gpio(np, "fp-reset-gpio", 0);
+	if (!gpio_is_valid(gf_dev->reset_gpio) && fp_np)
+		gf_dev->reset_gpio = of_get_named_gpio(fp_np, "fp-reset-gpio", 0);
+
 	if (gpio_is_valid(gf_dev->reset_gpio)) {
 		ret = gpio_request(gf_dev->reset_gpio, "gf_reset_gpio");
 		if (ret) {
 			dev_err(dev, "Failed to request reset gpio: %d\n", ret);
 			if (gpio_is_valid(gf_dev->irq_gpio))
 				gpio_free(gf_dev->irq_gpio);
+			if (fp_np)
+				of_node_put(fp_np);
 			return ret;
 		}
 		gpio_direction_output(gf_dev->reset_gpio, 1);
 	}
+
+	if (fp_np)
+		of_node_put(fp_np);
 
 	gf_dev->vfp = regulator_get(dev, "vfp");
 	if (IS_ERR(gf_dev->vfp))
