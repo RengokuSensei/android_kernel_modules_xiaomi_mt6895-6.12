@@ -4,6 +4,7 @@ ccflags-y += \
 	-I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/sspm/v2 \
 	-I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/mcupm/include \
 	-I$(DEVICE_MODULES_PATH)/drivers/gpu/mediatek/gpufreq \
+	-I$(DEVICE_MODULES_PATH)/drivers/gpu/mediatek/gpufreq/v2/include \
 	-I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/connectivity/power_throttling \
 	-I$(DEVICE_MODULES_PATH)/drivers/leds \
 	-I$(srctree)/drivers/thermal \
