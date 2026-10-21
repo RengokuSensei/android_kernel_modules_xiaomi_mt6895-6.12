@@ -4,6 +4,7 @@ ccflags-y += \
 	-I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/sspm/v2 \
 	-I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/mcupm/include \
 	-I$(DEVICE_MODULES_PATH)/drivers/gpu/mediatek/gpufreq \
+	-I$(DEVICE_MODULES_PATH)/drivers/gpu/mediatek/gpufreq/v2/include \
 	-I$(DEVICE_MODULES_PATH)/drivers/misc/mediatek/connectivity/power_throttling \
 	-I$(DEVICE_MODULES_PATH)/drivers/leds \
 	-I$(DEVICE_MODULES_PATH)/drivers/thermal
@@ -13,7 +14,7 @@ CFLAGS_soc_temp_lvts.o := -I$(DEVICE_MODULES_PATH)/drivers/thermal -I$(srctree)/
 CFLAGS_vtskin_temp.o := -I$(DEVICE_MODULES_PATH)/drivers/thermal
 CFLAGS_pmic_temp.o := -I$(DEVICE_MODULES_PATH)/drivers/thermal -I$(srctree)/drivers/thermal
 CFLAGS_board_temp.o := -I$(DEVICE_MODULES_PATH)/drivers/thermal -I$(srctree)/drivers/thermal
-CFLAGS_thermal_interface.o := -I$(DEVICE_MODULES_PATH)/drivers/thermal -I$(srctree)/drivers/thermal
+CFLAGS_thermal_interface.o := -I$(DEVICE_MODULES_PATH)/drivers/thermal -I$(srctree)/drivers/thermal -I$(DEVICE_MODULES_PATH)/drivers/gpu/mediatek/gpufreq/v2/include
 
 ifneq ($(CONFIG_MTK_GPU_LEGACY),y)
 ifneq ($(CONFIG_MTK_TINYSYS_GPUEB_SUPPORT),)
