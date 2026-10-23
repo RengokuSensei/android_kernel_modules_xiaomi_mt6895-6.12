@@ -204,7 +204,7 @@ static u32 kbase_csf_calc_firmware_mem_checksum(struct kbase_device *kbdev, u32 
 				{
 					u32 page_va = iface->virtual + (p * PAGE_SIZE);
 
-					if (!is_pre && (page_va == 0x0203e000 ||
+					if (!is_pre && (page_va == 0x0203e000 || page_va == 0x0203f000 ||
 					    (page_va >= 0x04000000 && page_va <= 0x04003000))) {
 						int nz_rows = 0;
 						dev_err(kbdev->dev,
@@ -537,6 +537,10 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 			job_raw, job_stat, job_mask, !!(job_raw & JOB_IRQ_GLOBAL_IF));
 		dev_err(kbdev->dev, "[CSF DIAG] GPU_IRQ: RAW=0x%08x STAT=0x%08x MASK=0x%08x STATUS=0x%08x\n",
 			gpu_raw, gpu_stat, gpu_mask, gpu_status);
+		dev_err(kbdev->dev, "[CSF DIAG] MCU_GPU_IRQ: RAW=0x%08x MASK=0x%08x STAT=0x%08x\n",
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(0x3020)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(0x3028)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(0x302c)));
 		dev_err(kbdev->dev, "[CSF DIAG] GPU_FAULT: FAULTSTATUS=0x%08x FAULTADDR=0x%08x%08x\n",
 			gpu_fault, gpu_fault_hi, gpu_fault_lo);
 		dev_err(kbdev->dev, "[CSF DIAG] MCU: CTRL=0x%08x STAT=0x%08x L2_READY_LO=0x%08x SHADER_READY_LO=0x%08x\n",
@@ -727,14 +731,31 @@ static void boot_csf_firmware(struct kbase_device *kbdev)
 			kbase_reg_read(kbdev, GPU_CONTROL_REG(TILER_PWRTRANS_LO)),
 			wait_i * 10);
 
-		/* Clear latched power interrupts (0x600 = POWER_CHANGED_SINGLE | POWER_CHANGED_ALL) */
+		/* Clear latched power/status interrupts on both Host (0x024) and MCU (0x3024) interfaces */
 		dev_info(kbdev->dev,
-			"[CSF DIAG PWR IRQ] GPU_IRQ_RAWSTAT before clear: 0x%08x\n",
-			kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT)));
-		kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_CLEAR), 0x00000600);
+			"[CSF DIAG PWR IRQ] HOST_GPU_IRQ before clear: RAW=0x%08x MASK=0x%08x STAT=0x%08x\n",
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_STATUS)));
 		dev_info(kbdev->dev,
-			"[CSF DIAG PWR IRQ] GPU_IRQ_RAWSTAT after clear: 0x%08x\n",
-			kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT)));
+			"[CSF DIAG PWR IRQ] MCU_GPU_IRQ before clear: RAW=0x%08x MASK=0x%08x STAT=0x%08x\n",
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(0x3020)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(0x3028)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(0x302c)));
+
+		kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_CLEAR), 0xFFFFFFFF);
+		kbase_reg_write(kbdev, GPU_CONTROL_REG(0x3024), 0xFFFFFFFF);
+
+		dev_info(kbdev->dev,
+			"[CSF DIAG PWR IRQ] HOST_GPU_IRQ after clear: RAW=0x%08x MASK=0x%08x STAT=0x%08x\n",
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_STATUS)));
+		dev_info(kbdev->dev,
+			"[CSF DIAG PWR IRQ] MCU_GPU_IRQ after clear: RAW=0x%08x MASK=0x%08x STAT=0x%08x\n",
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(0x3020)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(0x3028)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(0x302c)));
 	}
 
 	/* Hardware Clock and Power State Diagnostic Dump right before MCU enable */
@@ -818,6 +839,33 @@ static void boot_csf_firmware(struct kbase_device *kbdev)
 
 	dev_info(kbdev->dev, "kbase [BREADCRUMB]: enabling CSF MCU...\n");
 	msleep(100);
+
+	/* Final clear of Host (0x024) and MCU (0x3024) IRQs immediately before MCU enable */
+	dev_info(kbdev->dev,
+		"[CSF DIAG PRE_ENABLE IRQ] HOST_GPU_IRQ before clear: RAW=0x%08x MASK=0x%08x STAT=0x%08x\n",
+		kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT)),
+		kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK)),
+		kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_STATUS)));
+	dev_info(kbdev->dev,
+		"[CSF DIAG PRE_ENABLE IRQ] MCU_GPU_IRQ before clear: RAW=0x%08x MASK=0x%08x STAT=0x%08x\n",
+		kbase_reg_read(kbdev, GPU_CONTROL_REG(0x3020)),
+		kbase_reg_read(kbdev, GPU_CONTROL_REG(0x3028)),
+		kbase_reg_read(kbdev, GPU_CONTROL_REG(0x302c)));
+
+	kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_CLEAR), 0xFFFFFFFF);
+	kbase_reg_write(kbdev, GPU_CONTROL_REG(0x3024), 0xFFFFFFFF);
+
+	dev_info(kbdev->dev,
+		"[CSF DIAG PRE_ENABLE IRQ] HOST_GPU_IRQ after clear: RAW=0x%08x MASK=0x%08x STAT=0x%08x\n",
+		kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT)),
+		kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK)),
+		kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_STATUS)));
+	dev_info(kbdev->dev,
+		"[CSF DIAG PRE_ENABLE IRQ] MCU_GPU_IRQ after clear: RAW=0x%08x MASK=0x%08x STAT=0x%08x\n",
+		kbase_reg_read(kbdev, GPU_CONTROL_REG(0x3020)),
+		kbase_reg_read(kbdev, GPU_CONTROL_REG(0x3028)),
+		kbase_reg_read(kbdev, GPU_CONTROL_REG(0x302c)));
+
 	kbase_csf_firmware_enable_mcu(kbdev);
 	dev_info(kbdev->dev, "[CSF_DIAG] MCU enabled (MCU_CONTROL written). Waiting up to %u ms for GLB_VERSION...\n",
 		 csf_firmware_boot_timeout_ms);
