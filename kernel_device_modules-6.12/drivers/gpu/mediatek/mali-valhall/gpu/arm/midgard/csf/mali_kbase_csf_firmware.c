@@ -81,10 +81,10 @@ module_param(csf_diag_dual_read, bool, 0644);
 MODULE_PARM_DESC(csf_diag_dual_read,
 		 "Enable dual-read diagnostic comparing cached vs write-combined physical memory on timeout");
 
-static bool mali_prepower_cores = false;
+static bool mali_prepower_cores = true;
 module_param(mali_prepower_cores, bool, 0644);
 MODULE_PARM_DESC(mali_prepower_cores,
-		 "Pre-power STACK and SHADER cores before MCU enable (default 0).");
+		 "Pre-power STACK, SHADER, and TILER cores before MCU enable (default 1).");
 
 extern bool mali_skip_mcu_on_clk_fail;
 
@@ -136,6 +136,39 @@ static u32 kbase_csf_calc_firmware_mem_checksum(struct kbase_device *kbdev, u32 
 					iface->virtual, iface->name ? iface->name : "unnamed", iface->num_pages,
 					iface_csum, iface->last_checksum,
 					changed ? "CHANGED (MCU MODIFIED THIS SECTION!)" : "IDENTICAL (UNTOUCHED)");
+
+				if (iface->virtual == 0x04000000) {
+					u32 p;
+					for (p = 0; p < min(iface->num_pages, 4U); p++) {
+						u32 page_va = iface->virtual + (p * PAGE_SIZE);
+						u32 *p_words = words + (p * (PAGE_SIZE / 4));
+						int nz_rows = 0;
+						dev_err(kbdev->dev,
+							"[CSF DIAG PAGE DUMP] Non-zero rows in page_va=0x%08x (iface=0x%08x p=%u):\n",
+							page_va, iface->virtual, p);
+						for (w = 0; w < (PAGE_SIZE / 4); w += 8) {
+							u32 w0 = READ_ONCE(p_words[w + 0]);
+							u32 w1 = READ_ONCE(p_words[w + 1]);
+							u32 w2 = READ_ONCE(p_words[w + 2]);
+							u32 w3 = READ_ONCE(p_words[w + 3]);
+							u32 w4 = READ_ONCE(p_words[w + 4]);
+							u32 w5 = READ_ONCE(p_words[w + 5]);
+							u32 w6 = READ_ONCE(p_words[w + 6]);
+							u32 w7 = READ_ONCE(p_words[w + 7]);
+
+							if (w0 | w1 | w2 | w3 | w4 | w5 | w6 | w7) {
+								dev_err(kbdev->dev,
+									"[CSF DIAG 0x%08x +0x%03x]: %08x %08x %08x %08x %08x %08x %08x %08x\n",
+									page_va, w * 4,
+									w0, w1, w2, w3, w4, w5, w6, w7);
+								nz_rows++;
+							}
+						}
+						dev_err(kbdev->dev,
+							"[CSF DIAG 0x%08x] Total non-zero 32B rows: %d / 128\n",
+							page_va, nz_rows);
+					}
+				}
 			}
 		} else if (iface->phys && iface->num_pages > 0) {
 			/* Map physical pages safely using kmap_local_page, skipping firewalled regions */
@@ -167,6 +200,40 @@ static u32 kbase_csf_calc_firmware_mem_checksum(struct kbase_device *kbdev, u32 
 					iface_csum = (iface_csum << 5) - iface_csum + val;
 					total_csum = (total_csum << 5) - total_csum + val;
 				}
+
+				{
+					u32 page_va = iface->virtual + (p * PAGE_SIZE);
+
+					if (!is_pre && (page_va == 0x0203e000 ||
+					    (page_va >= 0x04000000 && page_va <= 0x04003000))) {
+						int nz_rows = 0;
+						dev_err(kbdev->dev,
+							"[CSF DIAG PAGE DUMP] Non-zero rows in page_va=0x%08x (iface=0x%08x p=%u):\n",
+							page_va, iface->virtual, p);
+						for (w = 0; w < (PAGE_SIZE / 4); w += 8) {
+							u32 w0 = READ_ONCE(words[w + 0]);
+							u32 w1 = READ_ONCE(words[w + 1]);
+							u32 w2 = READ_ONCE(words[w + 2]);
+							u32 w3 = READ_ONCE(words[w + 3]);
+							u32 w4 = READ_ONCE(words[w + 4]);
+							u32 w5 = READ_ONCE(words[w + 5]);
+							u32 w6 = READ_ONCE(words[w + 6]);
+							u32 w7 = READ_ONCE(words[w + 7]);
+
+							if (w0 | w1 | w2 | w3 | w4 | w5 | w6 | w7) {
+								dev_err(kbdev->dev,
+									"[CSF DIAG 0x%08x +0x%03x]: %08x %08x %08x %08x %08x %08x %08x %08x\n",
+									page_va, w * 4,
+									w0, w1, w2, w3, w4, w5, w6, w7);
+								nz_rows++;
+							}
+						}
+						dev_err(kbdev->dev,
+							"[CSF DIAG 0x%08x] Total non-zero 32B rows: %d / 128\n",
+							page_va, nz_rows);
+					}
+				}
+
 				kunmap_local(words);
 				mapped_pages++;
 			}
@@ -482,11 +549,18 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 			as_transtab_hi, as_transtab_lo, as_memattr_hi, as_memattr_lo, as_transcfg_hi, as_transcfg_lo);
 		if (shared_info) {
 			u32 *out_block = shared_info + (0x3000 / 4);
+			int idx;
 			rmb();
-			dev_err(kbdev->dev, "[CSF DIAG] CACHED MEM: GLB_VERSION=0x%08x [0..7]=0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
-				READ_ONCE(shared_info[GLB_VERSION / 4]),
-				shared_info[0], shared_info[1], shared_info[2], shared_info[3],
-				shared_info[4], shared_info[5], shared_info[6], shared_info[7]);
+			dev_err(kbdev->dev, "[CSF DIAG 0x04000000 DUMP] First 32 words (0x80 bytes) of shared interface page:\n");
+			for (idx = 0; idx < 32; idx += 8) {
+				dev_err(kbdev->dev,
+					"[CSF DIAG 0x04000000 +0x%02x]: 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
+					idx * 4,
+					shared_info[idx], shared_info[idx + 1],
+					shared_info[idx + 2], shared_info[idx + 3],
+					shared_info[idx + 4], shared_info[idx + 5],
+					shared_info[idx + 6], shared_info[idx + 7]);
+			}
 			dev_err(kbdev->dev, "[CSF DIAG OUTPUT_BLOCK] [0..7]=0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x (GLB_HALT_STATUS=0x%08x)\n",
 				out_block[0], out_block[1], out_block[2], out_block[3],
 				out_block[4], out_block[5], out_block[6], out_block[7],
@@ -612,24 +686,55 @@ static void boot_csf_firmware(struct kbase_device *kbdev)
 		"[CSF SNAPSHOT TOTAL PRE] Checksum=0x%08x across %u bytes\n",
 		s_pre_mcu_csum, s_pre_mcu_bytes);
 
-	/* Optional pre-power for STACK and SHADER cores (default disabled) */
+	/* Pre-power for STACK, SHADER, and TILER cores (enabled by default) */
 	if (mali_prepower_cores) {
+		int wait_i;
 		u32 st_pres = kbase_reg_read(kbdev, GPU_CONTROL_REG(STACK_PRESENT_LO));
 		u32 sh_pres = kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_PRESENT_LO));
+		u32 ti_pres = kbase_reg_read(kbdev, GPU_CONTROL_REG(TILER_PRESENT_LO));
 		dev_info(kbdev->dev,
-			"[CSF DIAG PWR PRE] Pre-powering STACK=0x%08x SHADER=0x%08x before MCU boot...\n",
-			st_pres, sh_pres);
+			"[CSF DIAG PWR PRE] Pre-powering STACK=0x%08x SHADER=0x%08x TILER=0x%08x before MCU boot...\n",
+			st_pres, sh_pres, ti_pres);
 		if (st_pres)
 			kbase_reg_write(kbdev, GPU_CONTROL_REG(STACK_PWRON_LO), st_pres);
 		if (sh_pres)
 			kbase_reg_write(kbdev, GPU_CONTROL_REG(SHADER_PWRON_LO), sh_pres);
-		msleep(10);
+		if (ti_pres)
+			kbase_reg_write(kbdev, GPU_CONTROL_REG(TILER_PWRON_LO), ti_pres);
+
+		/* Wait for STACK, SHADER, and TILER to become READY and finish transitions */
+		for (wait_i = 0; wait_i < 1000; wait_i++) {
+			u32 st_rdy = kbase_reg_read(kbdev, GPU_CONTROL_REG(STACK_READY_LO));
+			u32 sh_rdy = kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_READY_LO));
+			u32 ti_rdy = kbase_reg_read(kbdev, GPU_CONTROL_REG(TILER_READY_LO));
+			u32 st_tr  = kbase_reg_read(kbdev, GPU_CONTROL_REG(STACK_PWRTRANS_LO));
+			u32 sh_tr  = kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_PWRTRANS_LO));
+			u32 ti_tr  = kbase_reg_read(kbdev, GPU_CONTROL_REG(TILER_PWRTRANS_LO));
+
+			if (st_rdy == st_pres && sh_rdy == sh_pres && ti_rdy == ti_pres &&
+			    st_tr == 0 && sh_tr == 0 && ti_tr == 0)
+				break;
+			udelay(10);
+		}
+
 		dev_info(kbdev->dev,
-			"[CSF DIAG PWR POST] READY: STACK=0x%08x SHADER=0x%08x TRANS: STACK=0x%08x SHADER=0x%08x\n",
+			"[CSF DIAG PWR POST] READY: STACK=0x%08x SHADER=0x%08x TILER=0x%08x TRANS: STACK=0x%08x SHADER=0x%08x TILER=0x%08x (settled in %d us)\n",
 			kbase_reg_read(kbdev, GPU_CONTROL_REG(STACK_READY_LO)),
 			kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_READY_LO)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(TILER_READY_LO)),
 			kbase_reg_read(kbdev, GPU_CONTROL_REG(STACK_PWRTRANS_LO)),
-			kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_PWRTRANS_LO)));
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_PWRTRANS_LO)),
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(TILER_PWRTRANS_LO)),
+			wait_i * 10);
+
+		/* Clear latched power interrupts (0x600 = POWER_CHANGED_SINGLE | POWER_CHANGED_ALL) */
+		dev_info(kbdev->dev,
+			"[CSF DIAG PWR IRQ] GPU_IRQ_RAWSTAT before clear: 0x%08x\n",
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT)));
+		kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_CLEAR), 0x00000600);
+		dev_info(kbdev->dev,
+			"[CSF DIAG PWR IRQ] GPU_IRQ_RAWSTAT after clear: 0x%08x\n",
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT)));
 	}
 
 	/* Hardware Clock and Power State Diagnostic Dump right before MCU enable */

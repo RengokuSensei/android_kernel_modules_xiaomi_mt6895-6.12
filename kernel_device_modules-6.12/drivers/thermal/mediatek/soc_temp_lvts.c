@@ -1690,9 +1690,15 @@ static int lvts_register_thermal_zone(int id, struct lvts_data *lvts_data,
 
 	if (IS_ERR(*tzdev)) {
 		ret = PTR_ERR(*tzdev);
-		dev_err(dev,
-			"Error: Failed to register lvts tz %d, ret = %d\n",
-			lvts_tz->id, ret);
+		if (ret != -ENODEV) {
+			dev_err(dev,
+				"Error: Failed to register lvts tz %d, ret = %d\n",
+				lvts_tz->id, ret);
+		} else {
+			dev_info(dev,
+				"LVTS tz %d not defined in device tree (skipped)\n",
+				lvts_tz->id);
+		}
 	}
 	return ret;
 }
@@ -1716,14 +1722,13 @@ static int lvts_register_thermal_zones(struct lvts_data *lvts_data)
 			s_index = lvts_data->tc[i].sensor_map[j];
 
 			ret = lvts_register_thermal_zone(s_index + 1, lvts_data, &tzdev);
-			if (ret)
+			if (ret && ret != -ENODEV)
 				return ret;
-
-
+			ret = 0;
 		}
 	}
 
-	return ret;
+	return 0;
 }
 
 static void check_runtime_log_from_dts(struct lvts_data *lvts_data,

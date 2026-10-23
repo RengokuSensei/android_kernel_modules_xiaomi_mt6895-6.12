@@ -595,13 +595,13 @@ PYEOF
     # in probe and fails with 'failed to get usb role' if mtu3 has not
     # registered it yet (2026-08-11 real device).
     #
-    # Run 87 (Option A): Include mali_mgm and mali_prot_alloc in modules.load
-    # so memory allocators auto-load at early boot. Exclude only mali_kbase_mt6895
-    # for safe, controlled live-streaming test via adb shell.
+    # Run 88 (Option A controlled test): Keep mali_kbase_mt6895 out of early modules.load
+    # so test_run88.sh can load it under controlled live streaming after stopping crashing services.
+    # Also exclude clk-disable-unused to prevent early display clock shutdown.
     python3 - <<'PYEOF' > modules.load.tmp
 import sys
 mods = [l.strip() for l in open('modules.load') if l.strip()]
-exclude = {'mali_kbase_mt6895', 'mali_kbase_mt6895.ko'}
+exclude = {'mali_kbase_mt6895', 'mali_kbase_mt6895.ko', 'clk-disable-unused', 'clk_disable_unused'}
 mods = [m for m in mods if m not in exclude and m.removesuffix('.ko') not in exclude]
 present = [m for m in ['xhci-mtk-hcd-v2'] if m in mods]
 rest = [m for m in mods if m not in present]
@@ -652,7 +652,7 @@ PYEOF
     python3 "$MKBOOTIMG" --vendor_boot "$VD/vendor_boot_new.img" \
         --vendor_ramdisk "$VD/vr_new.lz4" \
         --dtb "$VD/dtb_container.bin" \
-        --vendor_cmdline "bootopt=64S3,32N2,64N2" \
+        --vendor_cmdline "bootopt=64S3,32N2,64N2 clk_ignore_unused" \
         --base 0x40000000 --kernel_offset 0 --ramdisk_offset 0x26f00000 \
         --tags_offset 0x7c80000 --dtb_offset 0x7c80000 \
         --header_version 4 --pagesize 4096 --board "" > "$WORK/vb_mkboot.log" 2>&1

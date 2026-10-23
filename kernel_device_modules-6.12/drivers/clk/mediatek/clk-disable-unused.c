@@ -5,6 +5,7 @@
 
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
+#include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -26,6 +27,11 @@ static int disable_unused_probe(struct platform_device *pdev)
 	int clk_con, i = 0;
 	int pp1, en1, pp2, en2;
 	int retval = 0;
+
+	if (strstr(saved_command_line, "clk_ignore_unused")) {
+		pr_info("clk-disable-unused: disabled via clk_ignore_unused cmdline\n");
+		return 0;
+	}
 
 	clk_con = of_count_phandle_with_args(pdev->dev.of_node, "clocks",
 			"#clock-cells");
