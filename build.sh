@@ -595,13 +595,13 @@ PYEOF
     # in probe and fails with 'failed to get usb role' if mtu3 has not
     # registered it yet (2026-08-11 real device).
     #
-    # Run 88 (Option A controlled test): Keep mali_kbase_mt6895 out of early modules.load
-    # so test_run88.sh can load it under controlled live streaming after stopping crashing services.
-    # Also exclude clk-disable-unused to prevent early display clock shutdown.
+    # Run 91: Re-enable mali_kbase_mt6895 in early modules.load now that
+    # guarded CSG 6 auto-patch is active, allowing SurfaceFlinger to access /dev/mali0.
+    # Exclude clk-disable-unused to prevent early display clock shutdown.
     python3 - <<'PYEOF' > modules.load.tmp
 import sys
 mods = [l.strip() for l in open('modules.load') if l.strip()]
-exclude = {'mali_kbase_mt6895', 'mali_kbase_mt6895.ko', 'clk-disable-unused', 'clk_disable_unused'}
+exclude = {'clk-disable-unused', 'clk_disable_unused'}
 mods = [m for m in mods if m not in exclude and m.removesuffix('.ko') not in exclude]
 present = [m for m in ['xhci-mtk-hcd-v2'] if m in mods]
 rest = [m for m in mods if m not in present]

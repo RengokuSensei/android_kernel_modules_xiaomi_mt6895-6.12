@@ -101,6 +101,13 @@ module_param(csf_patch_size, uint, 0644);
 MODULE_PARM_DESC(csf_patch_size,
 		 "CSF firmware patch size in bytes (2 or 4, default 2)");
 
+static bool csf_workaround = true;
+module_param(csf_workaround, bool, 0644);
+MODULE_PARM_DESC(csf_workaround,
+		 "Enable guarded CSG 6 firmware workaround (default 1)");
+
+static bool csf_workaround_applied;
+
 extern bool mali_skip_mcu_on_clk_fail;
 
 static u32 s_pre_mcu_csum;
@@ -282,43 +289,82 @@ static u32 kbase_csf_calc_firmware_mem_checksum(struct kbase_device *kbdev, u32 
 static void kbase_csf_firmware_apply_patch_hook(struct kbase_device *kbdev)
 {
 	struct kbase_csf_firmware_interface *interface;
+	ulong target_addr = csf_patch_address;
+	u32 target_val = csf_patch_val;
+	u32 target_size = csf_patch_size;
+	bool is_auto_workaround = false;
 
-	if (!csf_patch_address)
-		return;
+	csf_workaround_applied = false;
+
+	/* If no manual override is specified via module parameters, apply the
+	 * default guarded CSG 6 workaround at 0x01003004 (cmp r3, #8 -> cmp r3, #6).
+	 */
+	if (!target_addr) {
+		if (!csf_workaround) {
+			dev_info(kbdev->dev, "[CSF WORKAROUND] Disabled via csf_workaround=0 parameter\n");
+			return;
+		}
+		target_addr = 0x01003004ul;
+		target_val = 0x2b06; /* cmp r3, #6 */
+		target_size = 2;
+		is_auto_workaround = true;
+	}
 
 	list_for_each_entry(interface, &kbdev->csf.firmware_interfaces, node) {
 		u32 iface_start = interface->virtual;
 		u32 iface_end = interface->virtual + (interface->num_pages << PAGE_SHIFT);
 
-		if (csf_patch_address >= iface_start && csf_patch_address < iface_end) {
-			u32 offset = csf_patch_address - iface_start;
+		if (target_addr >= iface_start && target_addr < iface_end) {
+			u32 offset = target_addr - iface_start;
 			u32 page_idx = offset >> PAGE_SHIFT;
 			u32 page_off = offset & (PAGE_SIZE - 1);
 			struct page *p = as_page(interface->phys[page_idx]);
 			char *kaddr = kmap_atomic(p);
 			u32 old_val = 0;
 
-			if (csf_patch_size == 4) {
+			if (target_size == 4) {
 				old_val = *(u32 *)(kaddr + page_off);
-				*(u32 *)(kaddr + page_off) = csf_patch_val;
 			} else {
 				old_val = *(u16 *)(kaddr + page_off);
-				*(u16 *)(kaddr + page_off) = (u16)csf_patch_val;
+			}
+
+			/* For the automatic workaround, strictly guard against unexpected firmware:
+			 * only apply if the instruction at 0x01003004 is indeed 0x2b08 (cmp r3, #8).
+			 */
+			if (is_auto_workaround && (u16)old_val != 0x2b08) {
+				kunmap_atomic(kaddr);
+				dev_warn(kbdev->dev,
+					 "[CSF WORKAROUND] Firmware at 0x%08lx has opcode 0x%04x (expected 0x2b08 for cmp r3, #8). Skipping auto-patch.\n",
+					 target_addr, (u16)old_val);
+				return;
+			}
+
+			if (target_size == 4) {
+				*(u32 *)(kaddr + page_off) = target_val;
+			} else {
+				*(u16 *)(kaddr + page_off) = (u16)target_val;
 			}
 
 			kbase_sync_single_for_device(kbdev, kbase_dma_addr(p),
 						     PAGE_SIZE, DMA_TO_DEVICE);
 			kunmap_atomic(kaddr);
 
-			dev_err(kbdev->dev,
-				"[CSF PATCH] Applied patch at VA=0x%08lx (page %u +0x%x): old=0x%08x new=0x%08x size=%u\n",
-				csf_patch_address, page_idx, page_off, old_val, csf_patch_val, csf_patch_size);
+			if (is_auto_workaround) {
+				csf_workaround_applied = true;
+				dev_info(kbdev->dev,
+					 "[CSF WORKAROUND] Applied guarded CSG 6 workaround at VA=0x%08lx: 0x%04x (cmp r3, #8) -> 0x%04x (cmp r3, #6)\n",
+					 target_addr, (u16)old_val, (u16)target_val);
+			} else {
+				dev_info(kbdev->dev,
+					 "[CSF PATCH] Applied manual patch at VA=0x%08lx (page %u +0x%x): old=0x%08x new=0x%08x size=%u\n",
+					 target_addr, page_idx, page_off, old_val, target_val, target_size);
+			}
 			return;
 		}
 	}
 
-	dev_err(kbdev->dev, "[CSF PATCH] Target VA=0x%08lx not found in any firmware interface!\n",
-		csf_patch_address);
+	dev_warn(kbdev->dev, "[CSF PATCH] Target VA=0x%08lx not found in any firmware interface!\n",
+		 target_addr);
 }
 
 static void kbase_csf_diag_milestone(struct kbase_device *kbdev, const char *tag)
@@ -577,27 +623,7 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 	}
 
 	if (!remaining && !fw_ver) {
-		kbase_csf_diag_milestone(kbdev, "2000ms (PRE-FLUSH)");
-
-		/* Issue host GPU L2 cache clean and invalidation */
-		dev_err(kbdev->dev, "[CSF DIAG] Triggering host GPU L2 cache clean/inv (GPU_COMMAND_CACHE_CLN_INV_FULL)...\n");
-		{
-			unsigned long cln_flags;
-			spin_lock_irqsave(&kbdev->hwaccess_lock, cln_flags);
-			kbase_gpu_cache_flush_and_busy_wait(kbdev, GPU_COMMAND_CACHE_CLN_INV_FULL);
-			spin_unlock_irqrestore(&kbdev->hwaccess_lock, cln_flags);
-		}
-		dev_err(kbdev->dev, "[CSF DIAG] Host GPU L2 cache clean/inv completed.\n");
-
-		kbase_csf_diag_milestone(kbdev, "2000ms (POST-FLUSH)");
-
-		if (shared_info) {
-			rmb();
-			fw_ver = READ_ONCE(shared_info[GLB_VERSION / 4]);
-			if (fw_ver != 0) {
-				dev_err(kbdev->dev, "[CSF DIAG] GLB_VERSION=0x%08x became visible AFTER host L2 cache flush!\n", fw_ver);
-			}
-		}
+		kbase_csf_diag_milestone(kbdev, "timeout (2000ms)");
 
 		u32 job_raw = kbase_reg_read(kbdev, JOB_CONTROL_REG(JOB_IRQ_RAWSTAT));
 		u32 job_stat = kbase_reg_read(kbdev, JOB_CONTROL_REG(JOB_IRQ_STATUS));
@@ -1789,6 +1815,15 @@ static int parse_capabilities(struct kbase_device *kbdev)
 		return -ENOMEM;
 
 	iface->group_num = shared_info[GLB_GROUP_NUM/4];
+	if (csf_workaround_applied && iface->group_num > 6) {
+		dev_info(kbdev->dev,
+			 "[CSF WORKAROUND] Capping CSG group_num from %u to 6 (workaround applied)\n",
+			 iface->group_num);
+		iface->group_num = 6;
+	}
+	dev_info(kbdev->dev,
+		 "[CSF WORKAROUND] Final CSG group_num: %u (workaround applied: %d)\n",
+		 iface->group_num, csf_workaround_applied);
 
 	if (iface->group_num < MIN_SUPPORTED_CSGS ||
 			iface->group_num > MAX_SUPPORTED_CSGS) {
