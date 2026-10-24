@@ -86,6 +86,21 @@ module_param(mali_prepower_cores, bool, 0644);
 MODULE_PARM_DESC(mali_prepower_cores,
 		 "Pre-power STACK, SHADER, and TILER cores before MCU enable (default 1).");
 
+static ulong csf_patch_address;
+module_param(csf_patch_address, ulong, 0644);
+MODULE_PARM_DESC(csf_patch_address,
+		 "CSF firmware patch target virtual address in hex, e.g. 0x01002fea (0 to disable)");
+
+static u32 csf_patch_val;
+module_param(csf_patch_val, uint, 0644);
+MODULE_PARM_DESC(csf_patch_val,
+		 "CSF firmware patch value (e.g. 0xe7fe for Thumb-2 b .)");
+
+static u32 csf_patch_size = 2;
+module_param(csf_patch_size, uint, 0644);
+MODULE_PARM_DESC(csf_patch_size,
+		 "CSF firmware patch size in bytes (2 or 4, default 2)");
+
 extern bool mali_skip_mcu_on_clk_fail;
 
 static u32 s_pre_mcu_csum;
@@ -262,6 +277,73 @@ static u32 kbase_csf_calc_firmware_mem_checksum(struct kbase_device *kbdev, u32 
 	if (out_bytes)
 		*out_bytes = total_bytes;
 	return total_csum;
+}
+
+static void kbase_csf_firmware_apply_patch_hook(struct kbase_device *kbdev)
+{
+	struct kbase_csf_firmware_interface *interface;
+
+	if (!csf_patch_address)
+		return;
+
+	list_for_each_entry(interface, &kbdev->csf.firmware_interfaces, node) {
+		u32 iface_start = interface->virtual;
+		u32 iface_end = interface->virtual + (interface->num_pages << PAGE_SHIFT);
+
+		if (csf_patch_address >= iface_start && csf_patch_address < iface_end) {
+			u32 offset = csf_patch_address - iface_start;
+			u32 page_idx = offset >> PAGE_SHIFT;
+			u32 page_off = offset & (PAGE_SIZE - 1);
+			struct page *p = as_page(interface->phys[page_idx]);
+			char *kaddr = kmap_atomic(p);
+			u32 old_val = 0;
+
+			if (csf_patch_size == 4) {
+				old_val = *(u32 *)(kaddr + page_off);
+				*(u32 *)(kaddr + page_off) = csf_patch_val;
+			} else {
+				old_val = *(u16 *)(kaddr + page_off);
+				*(u16 *)(kaddr + page_off) = (u16)csf_patch_val;
+			}
+
+			kbase_sync_single_for_device(kbdev, kbase_dma_addr(p),
+						     PAGE_SIZE, DMA_TO_DEVICE);
+			kunmap_atomic(kaddr);
+
+			dev_err(kbdev->dev,
+				"[CSF PATCH] Applied patch at VA=0x%08lx (page %u +0x%x): old=0x%08x new=0x%08x size=%u\n",
+				csf_patch_address, page_idx, page_off, old_val, csf_patch_val, csf_patch_size);
+			return;
+		}
+	}
+
+	dev_err(kbdev->dev, "[CSF PATCH] Target VA=0x%08lx not found in any firmware interface!\n",
+		csf_patch_address);
+}
+
+static void kbase_csf_diag_milestone(struct kbase_device *kbdev, const char *tag)
+{
+	struct kbase_csf_firmware_interface *interface = kbdev->csf.shared_interface;
+
+	if (interface && interface->kernel_map) {
+		u32 *shared_info = interface->kernel_map;
+		u32 p0_csum = 0x55aa55aa, p1_csum = 0x55aa55aa;
+		int i, p1_nonzero = 0;
+
+		rmb();
+		for (i = 0; i < 1024; i++) {
+			p0_csum = (p0_csum << 5) - p0_csum + shared_info[i];
+			p1_csum = (p1_csum << 5) - p1_csum + shared_info[1024 + i];
+			if (shared_info[1024 + i] != 0)
+				p1_nonzero++;
+		}
+		dev_err(kbdev->dev,
+			"[CSF MILESTONE %s] GLB_VER=0x%08x P0_csum=0x%08x P1_csum=0x%08x P1_nonzero=%d/1024 MCU_STAT=0x%08x JOB_IRQS=%d\n",
+			tag, READ_ONCE(shared_info[GLB_VERSION / 4]),
+			p0_csum, p1_csum, p1_nonzero,
+			kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_STATUS)),
+			atomic_read(&kbdev->csf.job_irq_fired_count));
+	}
 }
 
 #ifdef CONFIG_MALI_DEBUG
@@ -456,11 +538,18 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 	if (interface && interface->kernel_map)
 		shared_info = interface->kernel_map;
 
-	/* Direct memory polling loop with memory barriers alongside IRQ wait */
-	for (poll_i = 0; poll_i < 50; poll_i++) {
+	/* Progressive polling loop with milestone diagnostics at 10ms, 100ms, 1000ms */
+	for (poll_i = 0; poll_i < 200; poll_i++) {
 		if (kbdev->csf.interrupt_received)
 			break;
-		if ((poll_i % 5) == 0) {
+		if (poll_i == 1)
+			kbase_csf_diag_milestone(kbdev, "10ms");
+		else if (poll_i == 10)
+			kbase_csf_diag_milestone(kbdev, "100ms");
+		else if (poll_i == 100)
+			kbase_csf_diag_milestone(kbdev, "1000ms");
+
+		if ((poll_i % 20) == 0) {
 			dev_info(kbdev->dev, "[CSF DIAG POLL %dms] MCU_STAT=0x%08x MCU_CTRL=0x%08x\n",
 				 poll_i * 10,
 				 kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_STATUS)),
@@ -488,6 +577,28 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 	}
 
 	if (!remaining && !fw_ver) {
+		kbase_csf_diag_milestone(kbdev, "2000ms (PRE-FLUSH)");
+
+		/* Issue host GPU L2 cache clean and invalidation */
+		dev_err(kbdev->dev, "[CSF DIAG] Triggering host GPU L2 cache clean/inv (GPU_COMMAND_CACHE_CLN_INV_FULL)...\n");
+		{
+			unsigned long cln_flags;
+			spin_lock_irqsave(&kbdev->hwaccess_lock, cln_flags);
+			kbase_gpu_cache_flush_and_busy_wait(kbdev, GPU_COMMAND_CACHE_CLN_INV_FULL);
+			spin_unlock_irqrestore(&kbdev->hwaccess_lock, cln_flags);
+		}
+		dev_err(kbdev->dev, "[CSF DIAG] Host GPU L2 cache clean/inv completed.\n");
+
+		kbase_csf_diag_milestone(kbdev, "2000ms (POST-FLUSH)");
+
+		if (shared_info) {
+			rmb();
+			fw_ver = READ_ONCE(shared_info[GLB_VERSION / 4]);
+			if (fw_ver != 0) {
+				dev_err(kbdev->dev, "[CSF DIAG] GLB_VERSION=0x%08x became visible AFTER host L2 cache flush!\n", fw_ver);
+			}
+		}
+
 		u32 job_raw = kbase_reg_read(kbdev, JOB_CONTROL_REG(JOB_IRQ_RAWSTAT));
 		u32 job_stat = kbase_reg_read(kbdev, JOB_CONTROL_REG(JOB_IRQ_STATUS));
 		u32 job_mask = kbase_reg_read(kbdev, JOB_CONTROL_REG(JOB_IRQ_MASK));
@@ -533,8 +644,9 @@ static void wait_for_firmware_boot(struct kbase_device *kbdev)
 			kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_FAULTSTATUS)));
 
 		dev_err(kbdev->dev, "Timed out waiting for fw boot completion\n");
-		dev_err(kbdev->dev, "[CSF DIAG] JOB_IRQ: RAW=0x%08x STAT=0x%08x MASK=0x%08x (GLOBAL_IF=%d)\n",
-			job_raw, job_stat, job_mask, !!(job_raw & JOB_IRQ_GLOBAL_IF));
+		dev_err(kbdev->dev, "[CSF DIAG] JOB_IRQ: RAW=0x%08x STAT=0x%08x MASK=0x%08x (GLOBAL_IF=%d) FIRED_COUNT=%d\n",
+			job_raw, job_stat, job_mask, !!(job_raw & JOB_IRQ_GLOBAL_IF),
+			atomic_read(&kbdev->csf.job_irq_fired_count));
 		dev_err(kbdev->dev, "[CSF DIAG] GPU_IRQ: RAW=0x%08x STAT=0x%08x MASK=0x%08x STATUS=0x%08x\n",
 			gpu_raw, gpu_stat, gpu_mask, gpu_status);
 		dev_err(kbdev->dev, "[CSF DIAG] MCU_GPU_IRQ: RAW=0x%08x MASK=0x%08x STAT=0x%08x\n",
@@ -865,6 +977,8 @@ static void boot_csf_firmware(struct kbase_device *kbdev)
 		kbase_reg_read(kbdev, GPU_CONTROL_REG(0x3020)),
 		kbase_reg_read(kbdev, GPU_CONTROL_REG(0x3028)),
 		kbase_reg_read(kbdev, GPU_CONTROL_REG(0x302c)));
+
+	kbase_csf_firmware_apply_patch_hook(kbdev);
 
 	kbase_csf_firmware_enable_mcu(kbdev);
 	dev_info(kbdev->dev, "[CSF_DIAG] MCU enabled (MCU_CONTROL written). Waiting up to %u ms for GLB_VERSION...\n",
@@ -2237,6 +2351,8 @@ static void kbase_csf_firmware_reload_worker(struct work_struct *work)
 	kbase_csf_tl_reader_reset(&kbdev->timeline->csf_tl_reader);
 
 	/* Reboot the firmware */
+	kbase_csf_firmware_apply_patch_hook(kbdev);
+
 	kbase_csf_firmware_enable_mcu(kbdev);
 }
 
@@ -2250,7 +2366,9 @@ void kbase_csf_firmware_trigger_reload(struct kbase_device *kbdev)
 		kbdev->csf.firmware_reload_needed = false;
 		queue_work(system_wq, &kbdev->csf.firmware_reload_work);
 	} else {
-		kbase_csf_firmware_enable_mcu(kbdev);
+		kbase_csf_firmware_apply_patch_hook(kbdev);
+
+	kbase_csf_firmware_enable_mcu(kbdev);
 	}
 }
 

@@ -65,6 +65,10 @@ static irqreturn_t kbase_job_irq_handler(int irq, void *data)
 		return IRQ_NONE;
 	}
 
+#if MALI_USE_CSF
+	atomic_inc(&kbdev->csf.job_irq_fired_count);
+#endif
+
 	val = kbase_reg_read(kbdev, JOB_CONTROL_REG(JOB_IRQ_STATUS));
 
 #ifdef CONFIG_MALI_DEBUG
@@ -79,7 +83,8 @@ static irqreturn_t kbase_job_irq_handler(int irq, void *data)
 	}
 
 	if (val & JOB_IRQ_GLOBAL_IF) {
-		dev_info(kbdev->dev, "[CSF DIAG] JOB IRQ GLOBAL_IF received! irq=%d status=0x%08x\n", irq, val);
+		dev_info(kbdev->dev, "[CSF DIAG] JOB IRQ GLOBAL_IF received! irq=%d status=0x%08x count=%d\n",
+			irq, val, atomic_read(&kbdev->csf.job_irq_fired_count));
 	}
 
 	dev_vdbg(kbdev->dev, "%s: irq %d irqstatus 0x%x\n", __func__, irq, val);

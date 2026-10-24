@@ -1266,6 +1266,7 @@ struct kbase_csf_device {
 	struct mutex reg_lock;
 	wait_queue_head_t event_wait;
 	bool interrupt_received;
+	atomic_t job_irq_fired_count;
 	struct kbase_csf_global_iface global_iface;
 	struct kbase_csf_scheduler scheduler;
 	struct kbase_csf_reset_gpu reset;
