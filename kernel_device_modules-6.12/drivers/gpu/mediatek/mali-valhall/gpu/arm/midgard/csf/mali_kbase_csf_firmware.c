@@ -329,14 +329,25 @@ static void kbase_csf_firmware_apply_patch_hook(struct kbase_device *kbdev)
 			}
 
 			/* For the automatic workaround, strictly guard against unexpected firmware:
-			 * only apply if the instruction at 0x01003004 is indeed 0x2b08 (cmp r3, #8).
+			 * only apply if the instruction at 0x01003004 is indeed 0x2b08 (cmp r3, #8),
+			 * or if already patched to 0x2b06 (cmp r3, #6) on earlier boot / firmware reload.
 			 */
-			if (is_auto_workaround && (u16)old_val != 0x2b08) {
-				kunmap_atomic(kaddr);
-				dev_warn(kbdev->dev,
-					 "[CSF WORKAROUND] Firmware at 0x%08lx has opcode 0x%04x (expected 0x2b08 for cmp r3, #8). Skipping auto-patch.\n",
-					 target_addr, (u16)old_val);
-				return;
+			if (is_auto_workaround) {
+				if ((u16)old_val == 0x2b06) {
+					csf_workaround_applied = true;
+					kunmap_atomic(kaddr);
+					dev_info(kbdev->dev,
+						 "[CSF WORKAROUND] Firmware at 0x%08lx already patched (opcode 0x2b06). Keeping workaround active.\n",
+						 target_addr);
+					return;
+				}
+				if ((u16)old_val != 0x2b08) {
+					kunmap_atomic(kaddr);
+					dev_warn(kbdev->dev,
+						 "[CSF WORKAROUND] Firmware at 0x%08lx has opcode 0x%04x (expected 0x2b08 for cmp r3, #8). Skipping auto-patch.\n",
+						 target_addr, (u16)old_val);
+					return;
+				}
 			}
 
 			if (target_size == 4) {

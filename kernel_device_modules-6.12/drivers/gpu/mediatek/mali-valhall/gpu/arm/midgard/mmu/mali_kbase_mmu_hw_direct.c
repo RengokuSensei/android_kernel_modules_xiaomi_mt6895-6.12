@@ -43,6 +43,13 @@
 #define KBASE_AS_INACTIVE_DUMP_POINT_8S     (KBASE_AS_INACTIVE_MAX_LOOPS - (2000000 * 8))
 #endif
 
+#if MALI_USE_CSF
+#include <csf/mali_kbase_csf_firmware.h>
+static bool mali_skip_as0_wa = false;
+module_param(mali_skip_as0_wa, bool, 0644);
+MODULE_PARM_DESC(mali_skip_as0_wa, "Skip GPU2019_3901 workaround on MCU address space (AS0)");
+#endif
+
 /**
  * lock_region() - Generate lockaddr to lock memory region in MMU
  * @pfn:       Starting page frame number of the region to lock
@@ -454,7 +461,7 @@ static int mmu_hw_do_operation(struct kbase_device *kbdev, struct kbase_as *as,
 			 * supported, and this function doesn't gets called for the GPUs where
 			 * FLUSH_MEM/PT command is deprecated.
 			 */
-			if (op == AS_COMMAND_FLUSH_MEM) {
+			if (op == AS_COMMAND_FLUSH_MEM && (!mali_skip_as0_wa || as->number != MCU_AS_NR)) {
 				ret = apply_hw_issue_GPU2019_3901_wa(kbdev, &op,
 						as->number, hwaccess_locked);
 				if (ret)

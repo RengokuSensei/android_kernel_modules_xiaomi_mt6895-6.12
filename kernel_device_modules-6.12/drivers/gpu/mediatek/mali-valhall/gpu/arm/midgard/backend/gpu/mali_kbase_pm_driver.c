@@ -1983,6 +1983,26 @@ static void kbase_pm_timed_out(struct kbase_device *kbdev)
 			kbase_reg_read(kbdev, GPU_CONTROL_REG(
 					L2_PWRTRANS_LO)));
 
+	/* Run 92 Safe Power Diagnostics (Always-on SPM domain) */
+	{
+		void __iomem *spm = ioremap(0x1c001000, 0x1000);
+
+		if (spm) {
+			u32 mfg0 = readl(spm + 0xeb8);
+			u32 mfg1 = readl(spm + 0xebc);
+			u32 xpu = readl(spm + 0xf3c);
+
+			dev_err(kbdev->dev, "[PM TIMEOUT DIAG] SPM PWR_CON: MFG0=0x%08x MFG1=0x%08x XPU=0x%08x\n",
+				mfg0, mfg1, xpu);
+			iounmap(spm);
+		}
+	}
+#if defined(CONFIG_MTK_GPUFREQ_V2)
+	gpufreq_dump_infra_status();
+#elif defined(CONFIG_MTK_GPUFREQ_V1)
+	mt_gpufreq_dump_infra_status();
+#endif
+
 #if MALI_USE_CSF
 #if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
 	ged_log_buf_print2(
