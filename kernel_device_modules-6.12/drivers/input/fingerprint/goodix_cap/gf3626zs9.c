@@ -2,7 +2,8 @@
 /*
  * Goodix GF3626ZS9 Fingerprint Sensor Driver
  *
- * Ported to standard Linux 6.12 SPI subsystem APIs.
+ * Ported to standard Linux 6.12 SPI subsystem APIs (spi_sync, spi_setup,
+ * module_spi_driver), replacing legacy 5.10 mtk_spi.h / mtk_spi_hal.h.
  * Copyright (C) 2026 Goodix, Inc.
  */
 
@@ -130,6 +131,7 @@ static void gf_hw_reset(struct gf_dev *gf_dev)
 	}
 }
 
+/* Standard Linux 6.12 SPI transfer using spi_sync() */
 static int gf_spi_transfer(struct gf_dev *gf_dev, const u8 *tx_buf, u8 *rx_buf, size_t len)
 {
 	struct spi_transfer xfer = {
