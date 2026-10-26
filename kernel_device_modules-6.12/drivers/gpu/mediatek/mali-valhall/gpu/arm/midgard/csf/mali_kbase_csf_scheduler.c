@@ -45,6 +45,10 @@
 
 #define CSG_SUSPEND_ON_RESET_WAIT_TIMEOUT_MS DEFAULT_RESET_TIMEOUT_MS
 
+static bool mali_disable_fw_ping = false;
+module_param(mali_disable_fw_ping, bool, 0644);
+MODULE_PARM_DESC(mali_disable_fw_ping, "Disable CSF firmware aliveness ping work (default: false)");
+
 /* Maximum number of endpoints which may run tiler jobs. */
 #define CSG_TILER_MAX ((u8)1)
 
@@ -4961,6 +4965,11 @@ static void firmware_aliveness_monitor(struct work_struct *work)
 		goto exit;
 	}
 #endif
+
+	if (mali_disable_fw_ping) {
+		/* Explicit opt-in module parameter to bypass aliveness check */
+		goto exit;
+	}
 
 	if (kbdev->csf.scheduler.state == SCHED_SUSPENDED)
 		goto exit;

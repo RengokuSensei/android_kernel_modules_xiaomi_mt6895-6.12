@@ -2146,6 +2146,127 @@ static bool global_request_complete(struct kbase_device *const kbdev,
 	return complete;
 }
 
+static void kbase_csf_dump_ping_timeout_diagnostics(struct kbase_device *kbdev, u32 req_mask)
+{
+	struct kbase_csf_global_iface *global_iface = &kbdev->csf.global_iface;
+	struct kbase_csf_firmware_interface *iface;
+	u32 job_raw, job_stat, job_mask;
+	u32 gpu_raw, gpu_stat, gpu_mask, gpu_status, gpu_fault;
+	u32 mcu_ctrl, mcu_stat;
+	u32 glb_req, glb_ack;
+	u32 csg0_req = 0, csg0_ack = 0;
+
+	/* 1. Register Reads (guarded by gpu_powered) */
+	if (!kbdev->pm.backend.gpu_powered) {
+		dev_err(kbdev->dev, "[CSF TIMEOUT DIAG] GPU is not powered (backend.gpu_powered == false), skipping MMIO reads\n");
+	} else {
+		job_raw = kbase_reg_read(kbdev, JOB_CONTROL_REG(JOB_IRQ_RAWSTAT));
+		job_stat = kbase_reg_read(kbdev, JOB_CONTROL_REG(JOB_IRQ_STATUS));
+		job_mask = kbase_reg_read(kbdev, JOB_CONTROL_REG(JOB_IRQ_MASK));
+
+		gpu_raw = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT));
+		gpu_stat = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_STATUS));
+		gpu_mask = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK));
+		gpu_status = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_STATUS));
+		gpu_fault = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_FAULTSTATUS));
+		mcu_ctrl = kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_CONTROL));
+		mcu_stat = kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_STATUS));
+
+		dev_err(kbdev->dev, "[CSF TIMEOUT DIAG] ReqMask=0x%x JOB_IRQ: RAW=0x%08x STAT=0x%08x MASK=0x%08x\n",
+			req_mask, job_raw, job_stat, job_mask);
+		dev_err(kbdev->dev, "[CSF TIMEOUT DIAG] GPU_IRQ: RAW=0x%08x STAT=0x%08x MASK=0x%08x STATUS=0x%08x FAULT=0x%08x\n",
+			gpu_raw, gpu_stat, gpu_mask, gpu_status, gpu_fault);
+		dev_err(kbdev->dev, "[CSF TIMEOUT DIAG] MCU: CTRL=0x%08x STAT=0x%08x\n",
+			mcu_ctrl, mcu_stat);
+	}
+
+	/* 2. Global and CSG0 Interface State */
+	if (global_iface->input && global_iface->output) {
+		glb_req = kbase_csf_firmware_global_input_read(global_iface, GLB_REQ);
+		glb_ack = kbase_csf_firmware_global_output(global_iface, GLB_ACK);
+	} else {
+		glb_req = 0;
+		glb_ack = 0;
+	}
+	if (global_iface->groups && global_iface->group_num > 0) {
+		csg0_req = kbase_csf_firmware_csg_input_read(&global_iface->groups[0], CSG_REQ);
+		csg0_ack = kbase_csf_firmware_csg_output(&global_iface->groups[0], CSG_ACK);
+	}
+	dev_err(kbdev->dev, "[CSF TIMEOUT DIAG] IFACE: GLB_REQ=0x%08x GLB_ACK=0x%08x | CSG0_REQ=0x%08x CSG0_ACK=0x%08x\n",
+		glb_req, glb_ack, csg0_req, csg0_ack);
+
+	/* 3. Non-blocking reads of stack pages (PSP 0x0203e000 & MSP 0x0203f000) */
+	list_for_each_entry(iface, &kbdev->csf.firmware_interfaces, node) {
+		u32 start_va, end_va;
+		if (!iface->kernel_map || iface->num_pages == 0)
+			continue;
+		if ((iface->flags & CSF_FIRMWARE_ENTRY_PROTECTED) || iface->pma != NULL)
+			continue;
+
+		start_va = iface->virtual;
+		end_va = start_va + (iface->num_pages * PAGE_SIZE);
+
+		/* PSP Stack Page (0x0203e000) */
+		if (start_va <= 0x0203e000 && end_va > 0x0203e000) {
+			u32 page_idx = (0x0203e000 - start_va) / PAGE_SIZE;
+			u32 *words = (u32 *)iface->kernel_map + (page_idx * (PAGE_SIZE / 4));
+			int w, nz = 0;
+			dev_info(kbdev->dev, "[CSF TIMEOUT DIAG] Dumping PSP Stack page (0x0203e000) in '%s':\n",
+				 iface->name ? iface->name : "unnamed");
+			for (w = 0; w < (PAGE_SIZE / 4); w += 8) {
+				u32 w0 = READ_ONCE(words[w+0]), w1 = READ_ONCE(words[w+1]);
+				u32 w2 = READ_ONCE(words[w+2]), w3 = READ_ONCE(words[w+3]);
+				u32 w4 = READ_ONCE(words[w+4]), w5 = READ_ONCE(words[w+5]);
+				u32 w6 = READ_ONCE(words[w+6]), w7 = READ_ONCE(words[w+7]);
+				if (w0 | w1 | w2 | w3 | w4 | w5 | w6 | w7) {
+					dev_info(kbdev->dev, "[PSP +0x%03x]: %08x %08x %08x %08x %08x %08x %08x %08x\n",
+						 w * 4, w0, w1, w2, w3, w4, w5, w6, w7);
+					nz++;
+				}
+			}
+			dev_info(kbdev->dev, "[CSF TIMEOUT DIAG] PSP page total non-zero rows: %d / 128\n", nz);
+		}
+
+		/* MSP Stack Page (0x0203f000) */
+		if (start_va <= 0x0203f000 && end_va > 0x0203f000) {
+			u32 page_idx = (0x0203f000 - start_va) / PAGE_SIZE;
+			u32 *words = (u32 *)iface->kernel_map + (page_idx * (PAGE_SIZE / 4));
+			int w, nz = 0;
+			dev_info(kbdev->dev, "[CSF TIMEOUT DIAG] Dumping MSP Stack page (0x0203f000) in '%s':\n",
+				 iface->name ? iface->name : "unnamed");
+			for (w = 0; w < (PAGE_SIZE / 4); w += 8) {
+				u32 w0 = READ_ONCE(words[w+0]), w1 = READ_ONCE(words[w+1]);
+				u32 w2 = READ_ONCE(words[w+2]), w3 = READ_ONCE(words[w+3]);
+				u32 w4 = READ_ONCE(words[w+4]), w5 = READ_ONCE(words[w+5]);
+				u32 w6 = READ_ONCE(words[w+6]), w7 = READ_ONCE(words[w+7]);
+				if (w0 | w1 | w2 | w3 | w4 | w5 | w6 | w7) {
+					dev_info(kbdev->dev, "[MSP +0x%03x]: %08x %08x %08x %08x %08x %08x %08x %08x\n",
+						 w * 4, w0, w1, w2, w3, w4, w5, w6, w7);
+					nz++;
+				}
+			}
+			dev_info(kbdev->dev, "[CSF TIMEOUT DIAG] MSP page total non-zero rows: %d / 128\n", nz);
+		}
+
+		/* Shared Interface Pages 0 & 1 Checksums */
+		if (start_va == 0x04000000 && iface->num_pages >= 2) {
+			u32 *words0 = (u32 *)iface->kernel_map;
+			u32 *words1 = words0 + (PAGE_SIZE / 4);
+			u32 csum0 = 0x55aa55aa, csum1 = 0x55aa55aa;
+			int w;
+			for (w = 0; w < (PAGE_SIZE / 4); w++) {
+				csum0 = (csum0 << 5) - csum0 + READ_ONCE(words0[w]);
+				csum1 = (csum1 << 5) - csum1 + READ_ONCE(words1[w]);
+			}
+			dev_err(kbdev->dev, "[CSF TIMEOUT DIAG] Shared page 0 (0x04000000) csum=0x%08x | page 1 (0x04001000) csum=0x%08x\n",
+				csum0, csum1);
+		}
+	}
+
+	/* 4. Dump firmware trace buffer */
+	kbase_csf_firmware_trace_buffers_dump(kbdev);
+}
+
 static int wait_for_global_request(struct kbase_device *const kbdev,
 				   u32 const req_mask)
 {
@@ -2163,6 +2284,7 @@ static int wait_for_global_request(struct kbase_device *const kbdev,
 			 kbase_backend_get_cycle_cnt(kbdev),
 			 kbdev->csf.fw_timeout_ms,
 			 req_mask);
+		kbase_csf_dump_ping_timeout_diagnostics(kbdev, req_mask);
 #if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
 		ged_log_buf_print2(
 			 kbdev->ged_log_buf_hnd_kbase, GED_LOG_ATTR_TIME,

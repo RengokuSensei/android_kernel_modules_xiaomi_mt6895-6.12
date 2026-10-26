@@ -32,6 +32,8 @@
 #define MMU_IRQ_TAG	1
 #define GPU_IRQ_TAG	2
 
+static atomic_t job_irq_bit_counts[32];
+
 static void *kbase_tag(void *ptr, u32 tag)
 {
 	return (void *)(((uintptr_t) ptr) | tag);
@@ -82,9 +84,14 @@ static irqreturn_t kbase_job_irq_handler(int irq, void *data)
 		return IRQ_NONE;
 	}
 
-	if (val & JOB_IRQ_GLOBAL_IF) {
-		dev_info(kbdev->dev, "[CSF DIAG] JOB IRQ GLOBAL_IF received! irq=%d status=0x%08x count=%d\n",
-			irq, val, atomic_read(&kbdev->csf.job_irq_fired_count));
+	for (int b = 0; b < 32; b++) {
+		if (val & (1U << b)) {
+			int bcount = atomic_inc_return(&job_irq_bit_counts[b]);
+			if (bcount <= 100 || (bcount % 500 == 0)) {
+				dev_info(kbdev->dev, "[JOB_IRQ BIT %d] active! bit_count=%d total_irqs=%d status=0x%08x\n",
+					 b, bcount, atomic_read(&kbdev->csf.job_irq_fired_count), val);
+			}
+		}
 	}
 
 	dev_vdbg(kbdev->dev, "%s: irq %d irqstatus 0x%x\n", __func__, irq, val);

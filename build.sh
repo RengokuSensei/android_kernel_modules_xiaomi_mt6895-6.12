@@ -637,6 +637,30 @@ PYEOF
     }
     cd "$VD/vendor_ramdisk/rd"
     sed -i 's/^ro\.debuggable=0/ro.debuggable=1/' prop.default 2>/dev/null || true
+
+    # Run 93: Disable vendor.thermal-hal to prevent pixel-thermal SIGABRT crash loop & RescueParty fastboot reboot
+    cat << 'RCEOF' >> "$VD/vendor_ramdisk/rd/init.recovery.mt6895.rc"
+
+# Run 93: Disable crashing pixel-thermal vendor HAL
+service vendor.thermal-hal /vendor/bin/hw/android.hardware.thermal-service.mediatek
+    override
+    disabled
+
+on property:init.svc.vendor.thermal-hal=running
+    stop vendor.thermal-hal
+RCEOF
+
+    [ -f "$VD/vendor_ramdisk/rd/init.recovery.hardware.rc" ] && cat << 'RCEOF' >> "$VD/vendor_ramdisk/rd/init.recovery.hardware.rc"
+
+# Run 93: Disable crashing pixel-thermal vendor HAL
+service vendor.thermal-hal /vendor/bin/hw/android.hardware.thermal-service.mediatek
+    override
+    disabled
+
+on property:init.svc.vendor.thermal-hal=running
+    stop vendor.thermal-hal
+RCEOF
+
     find . | cpio -o -H newc > "$VD/vr_new.cpio" 2>/dev/null || true
     # IMPORTANT: compress with lz4 -l (legacy, magic 02 21 4c 18) - the
     # vendor_ramdisk is the kernel's initrd (/dev/ram), and both LK and the
