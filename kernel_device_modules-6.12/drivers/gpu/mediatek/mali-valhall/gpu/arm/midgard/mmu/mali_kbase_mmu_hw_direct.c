@@ -160,6 +160,7 @@ static int wait_ready(struct kbase_device *kbdev,
 	 * case one is pending. Do not log remaining register accesses.
 	 */
 	while (--max_loops && (val & AS_STATUS_AS_ACTIVE)) {
+		cpu_relax();
 		val = kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_STATUS));
 #if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
 		if((max_loops == KBASE_AS_INACTIVE_DUMP_POINT_1S) ||

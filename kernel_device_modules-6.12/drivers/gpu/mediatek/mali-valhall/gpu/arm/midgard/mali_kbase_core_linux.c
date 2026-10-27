@@ -5064,9 +5064,9 @@ static u32 config_system_coherency = (u32)-1;
 module_param(config_system_coherency, uint, 0444);
 MODULE_PARM_DESC(config_system_coherency, "Override system coherency: 0=ACE_LITE, 1=ACE, 31=NONE");
 
-bool mali_force_coh_none = false;
+bool mali_force_coh_none = true;
 module_param(mali_force_coh_none, bool, 0444);
-MODULE_PARM_DESC(mali_force_coh_none, "Force coherency mode NONE (31), disable PTW_SH_OS and force strip_share");
+MODULE_PARM_DESC(mali_force_coh_none, "Force coherency mode NONE (31), disable PTW_SH_OS and force strip_share (default: true)");
 
 int kbase_device_coherency_init(struct kbase_device *kbdev)
 {
