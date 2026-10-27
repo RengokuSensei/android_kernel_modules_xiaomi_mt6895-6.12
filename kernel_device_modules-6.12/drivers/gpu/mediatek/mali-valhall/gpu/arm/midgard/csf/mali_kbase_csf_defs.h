@@ -910,6 +910,8 @@ struct kbase_csf_scheduler {
 	struct kthread_work tick_work;
 	struct kthread_delayed_work tock_work;
 	struct delayed_work ping_work;
+	struct delayed_work csg0_start_diag_work;
+	int csg0_diag_stage;
 	struct kbase_context *top_ctx;
 	struct kbase_queue_group *top_grp;
 	bool tock_pending_request;

@@ -5064,6 +5064,10 @@ static u32 config_system_coherency = (u32)-1;
 module_param(config_system_coherency, uint, 0444);
 MODULE_PARM_DESC(config_system_coherency, "Override system coherency: 0=ACE_LITE, 1=ACE, 31=NONE");
 
+bool mali_force_coh_none = false;
+module_param(mali_force_coh_none, bool, 0444);
+MODULE_PARM_DESC(mali_force_coh_none, "Force coherency mode NONE (31), disable PTW_SH_OS and force strip_share");
+
 int kbase_device_coherency_init(struct kbase_device *kbdev)
 {
 #if IS_ENABLED(CONFIG_OF)
@@ -5145,6 +5149,12 @@ int kbase_device_coherency_init(struct kbase_device *kbdev)
 				"Ignoring unsupported coherency mode %u set from module param\n",
 				config_system_coherency);
 		}
+	}
+
+	if (mali_force_coh_none) {
+		kbdev->system_coherency = COHERENCY_NONE;
+		dev_info(kbdev->dev,
+			"[CSF COH] Forcing system_coherency=NONE (31) via mali_force_coh_none\n");
 	}
 
 	kbdev->gpu_props.props.raw_props.coherency_mode =

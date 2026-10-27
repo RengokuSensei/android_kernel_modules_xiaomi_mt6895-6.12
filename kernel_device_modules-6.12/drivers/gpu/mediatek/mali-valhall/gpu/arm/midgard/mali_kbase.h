@@ -130,6 +130,7 @@ static inline size_t strlcpy(char *dest, const char *src, size_t size)
 
 extern bool mali_force_dma32;
 extern uint mali_strip_share;
+extern bool mali_force_coh_none;
 
 /*
  * Kernel-side Base (KBase) APIs

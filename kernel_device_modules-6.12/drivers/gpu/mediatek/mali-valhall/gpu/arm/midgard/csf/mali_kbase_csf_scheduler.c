@@ -31,6 +31,7 @@
 #include <uapi/gpu/arm/midgard/csf/mali_gpu_csf_registers.h>
 #include <uapi/gpu/arm/midgard/mali_base_kernel.h>
 #include <mali_kbase_hwaccess_time.h>
+#include <mmu/mali_kbase_mmu_hw.h>
 
 #if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
 #include <mtk_gpufreq.h>
@@ -2253,6 +2254,11 @@ static void program_csg_slot(struct kbase_queue_group *group, s8 slot,
 			state, CSG_REQ_STATE_MASK);
 	kbase_csf_ring_csg_doorbell(kbdev, slot);
 	spin_unlock_irqrestore(&kbdev->csf.scheduler.interrupt_lock, flags);
+
+	if (slot == 0 && state == CSG_REQ_STATE_START && kbdev->csf.scheduler.csg0_diag_stage == 0) {
+		kbdev->csf.scheduler.csg0_diag_stage = 1;
+		queue_delayed_work(system_long_wq, &kbdev->csf.scheduler.csg0_start_diag_work, msecs_to_jiffies(50));
+	}
 
 	/* Update status before rings the door-bell, marking ready => run */
 	atomic_set(&csg_slot->state, CSG_SLOT_READY2RUN);
@@ -4841,6 +4847,7 @@ static void scheduler_inner_reset(struct kbase_device *kbdev)
 	kthread_cancel_work_sync(&scheduler->tick_work);
 	kthread_cancel_delayed_work_sync(&scheduler->tock_work);
 	cancel_delayed_work_sync(&scheduler->ping_work);
+	cancel_delayed_work_sync(&scheduler->csg0_start_diag_work);
 
 	mutex_lock(&scheduler->lock);
 
@@ -4932,6 +4939,22 @@ void kbase_csf_scheduler_reset(struct kbase_device *kbdev)
 		kbdev->ged_log_buf_hnd_kbase, GED_LOG_ATTR_TIME,
 		"Reset active queue groups and clear out scheduler data\n");
 #endif
+}
+
+static void csg0_start_diagnostics_worker(struct work_struct *work)
+{
+	struct kbase_device *kbdev = container_of(work, struct kbase_device,
+					csf.scheduler.csg0_start_diag_work.work);
+	struct kbase_csf_scheduler *scheduler = &kbdev->csf.scheduler;
+
+	if (scheduler->csg0_diag_stage == 1) {
+		kbase_mmu_dump_as_diagnostics(kbdev, "CSG0_START_+50MS", 0);
+		scheduler->csg0_diag_stage = 2;
+		queue_delayed_work(system_long_wq, &scheduler->csg0_start_diag_work, msecs_to_jiffies(950));
+	} else if (scheduler->csg0_diag_stage == 2) {
+		kbase_mmu_dump_as_diagnostics(kbdev, "CSG0_START_+1000MS", 0);
+		scheduler->csg0_diag_stage = 3;
+	}
 }
 
 static void firmware_aliveness_monitor(struct work_struct *work)
@@ -5545,6 +5568,8 @@ int kbase_csf_scheduler_early_init(struct kbase_device *kbdev)
 	kthread_init_delayed_work(&scheduler->tock_work, schedule_on_tock);
 
 	INIT_DEFERRABLE_WORK(&scheduler->ping_work, firmware_aliveness_monitor);
+	INIT_DELAYED_WORK(&scheduler->csg0_start_diag_work, csg0_start_diagnostics_worker);
+	scheduler->csg0_diag_stage = 0;
 	BUILD_BUG_ON(CSF_FIRMWARE_TIMEOUT_MS >= FIRMWARE_PING_INTERVAL_MS);
 
 	mutex_init(&scheduler->lock);
@@ -5595,6 +5620,7 @@ void kbase_csf_scheduler_term(struct kbase_device *kbdev)
 			scheduler_suspend(kbdev);
 		mutex_unlock(&kbdev->csf.scheduler.lock);
 		cancel_delayed_work_sync(&kbdev->csf.scheduler.ping_work);
+		cancel_delayed_work_sync(&kbdev->csf.scheduler.csg0_start_diag_work);
 		cancel_tick_timer(kbdev);
 		kthread_cancel_work_sync(&kbdev->csf.scheduler.tick_work);
 		kthread_cancel_delayed_work_sync(&kbdev->csf.scheduler.tock_work);

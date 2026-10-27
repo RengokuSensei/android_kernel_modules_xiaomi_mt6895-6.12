@@ -230,6 +230,7 @@ static int wait_ready(struct kbase_device *kbdev,
 		dev_info(kbdev->dev,
 			"AS_ACTIVE bit stuck for as %u, might be caused by slow/unstable GPU clock or possible faulty FPGA connector",
 			as_nr);
+		kbase_mmu_dump_as_diagnostics(kbdev, "AS_ACTIVE_STUCK", as_nr);
 		return -1;
 	}
 #endif
@@ -358,6 +359,51 @@ unlock:
 }
 #endif
 
+void kbase_mmu_dump_as_diagnostics(struct kbase_device *kbdev, const char *trigger, int target_as)
+{
+	int as_idx;
+	u32 mmu_raw, mmu_mask, mmu_stat, gpu_raw, gpu_mask, gpu_stat, gpu_fault, mcu_stat, coh_en;
+
+	if (!kbdev->pm.backend.gpu_powered)
+		return;
+
+	mmu_raw = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_RAWSTAT));
+	mmu_mask = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_MASK));
+	mmu_stat = kbase_reg_read(kbdev, MMU_REG(MMU_IRQ_STATUS));
+	gpu_raw = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT));
+	gpu_mask = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK));
+	gpu_stat = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_STATUS));
+	gpu_fault = kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_FAULTSTATUS));
+	mcu_stat = kbase_reg_read(kbdev, GPU_CONTROL_REG(MCU_STATUS));
+	coh_en = kbase_reg_read(kbdev, GPU_CONTROL_REG(COHERENCY_ENABLE));
+
+	dev_info(kbdev->dev, "[MMU AS DIAG (%s)] target_as=%d MMU_RAW=0x%08x MASK=0x%08x STAT=0x%08x | GPU_RAW=0x%08x MASK=0x%08x STAT=0x%08x FAULT=0x%08x | MCU_STAT=0x%08x COH_EN=0x%08x sys_coh=%u\n",
+		 trigger, target_as, mmu_raw, mmu_mask, mmu_stat, gpu_raw, gpu_mask, gpu_stat, gpu_fault, mcu_stat, coh_en, kbdev->system_coherency);
+
+	for (as_idx = 0; as_idx <= 1; as_idx++) {
+		u32 faultstatus = kbase_reg_read(kbdev, MMU_AS_REG(as_idx, AS_FAULTSTATUS));
+		u32 status = kbase_reg_read(kbdev, MMU_AS_REG(as_idx, AS_STATUS));
+		u64 faultaddress = ((u64)kbase_reg_read(kbdev, MMU_AS_REG(as_idx, AS_FAULTADDRESS_HI)) << 32) |
+				   kbase_reg_read(kbdev, MMU_AS_REG(as_idx, AS_FAULTADDRESS_LO));
+		u64 faultextra = ((u64)kbase_reg_read(kbdev, MMU_AS_REG(as_idx, AS_FAULTEXTRA_HI)) << 32) |
+				 kbase_reg_read(kbdev, MMU_AS_REG(as_idx, AS_FAULTEXTRA_LO));
+		u64 transtab = ((u64)kbase_reg_read(kbdev, MMU_AS_REG(as_idx, AS_TRANSTAB_HI)) << 32) |
+			       kbase_reg_read(kbdev, MMU_AS_REG(as_idx, AS_TRANSTAB_LO));
+		u64 transcfg = ((u64)kbase_reg_read(kbdev, MMU_AS_REG(as_idx, AS_TRANSCFG_HI)) << 32) |
+			       kbase_reg_read(kbdev, MMU_AS_REG(as_idx, AS_TRANSCFG_LO));
+		u64 memattr = ((u64)kbase_reg_read(kbdev, MMU_AS_REG(as_idx, AS_MEMATTR_HI)) << 32) |
+			      kbase_reg_read(kbdev, MMU_AS_REG(as_idx, AS_MEMATTR_LO));
+		u64 paddr = transtab & AS_TRANSTAB_BASE_MASK;
+
+		dev_info(kbdev->dev, "  [AS%d] STATUS=0x%08x FAULTSTATUS=0x%08x FAULTADDR=0x%016llx EXTRA=0x%016llx TRANSTAB=0x%016llx (PA=0x%llx, %s 4GB) TRANSCFG=0x%016llx (PTW_SH_OS=%s) MEMATTR=0x%016llx\n",
+			 as_idx, status, faultstatus, faultaddress, faultextra,
+			 transtab, paddr, (paddr >= 0x100000000ULL) ? "ABOVE" : "BELOW",
+			 transcfg, (transcfg & AS_TRANSCFG_PTW_SH_OS) ? "YES" : "NO",
+			 memattr);
+	}
+}
+KBASE_EXPORT_TEST_API(kbase_mmu_dump_as_diagnostics);
+
 void kbase_mmu_hw_configure(struct kbase_device *kbdev, struct kbase_as *as)
 {
 	struct kbase_mmu_setup *current_setup = &as->current_setup;
@@ -424,6 +470,8 @@ void kbase_mmu_hw_configure(struct kbase_device *kbdev, struct kbase_as *as)
 		 current_setup->memattr);
 	dev_info(kbdev->dev, "[CSF DIAG UPDATE_TRACE] as=%d MMU_RAW: before_cmd=0x%08x after_cmd=0x%08x after_wait=0x%08x\n",
 		 as->number, mmu_raw_before_cmd, mmu_raw_after_cmd, mmu_raw_after_wait);
+	if (mmu_raw_after_cmd != 0 || mmu_raw_after_wait != 0)
+		kbase_mmu_dump_as_diagnostics(kbdev, "POST_UPDATE_RAW_NZ", as->number);
 }
 
 static int mmu_hw_do_operation(struct kbase_device *kbdev, struct kbase_as *as,

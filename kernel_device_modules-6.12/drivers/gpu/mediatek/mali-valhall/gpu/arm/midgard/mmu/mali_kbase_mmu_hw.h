@@ -129,4 +129,6 @@ void kbase_mmu_hw_clear_fault(struct kbase_device *kbdev, struct kbase_as *as,
 void kbase_mmu_hw_enable_fault(struct kbase_device *kbdev, struct kbase_as *as,
 		enum kbase_mmu_fault_type type);
 
+void kbase_mmu_dump_as_diagnostics(struct kbase_device *kbdev, const char *trigger, int target_as);
+
 #endif	/* _KBASE_MMU_HW_H_ */

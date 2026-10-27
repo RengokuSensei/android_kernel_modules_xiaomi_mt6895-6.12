@@ -529,37 +529,38 @@ static void mt6895_apply_stock_hw_sequences(struct kbase_device *kbdev)
 
 	/* Bit 2: ACP sequence (Coherency Port: 0x168, 0x8E0..0x928 from disassembly) */
 	if (mali_hw_seq_mask & BIT(2)) {
+		u32 b168, b8e0, b8e8, b900, b908, b910, b918, b920, b928;
+
 		dev_info(kbdev->dev, "[CSF HW-SEQ] Executing ACP coherency sequence (bit 2)\n");
-		val = readl(mfg_top + 0x168);
-		val |= 0xF;
-		writel(val, mfg_top + 0x168);
 
-		val = readl(mfg_top + 0x8E0);
-		val |= 0x855;
-		writel(val, mfg_top + 0x8E0);
+		b168 = readl(mfg_top + 0x168);
+		b8e0 = readl(mfg_top + 0x8E0);
+		b8e8 = readl(mfg_top + 0x8E8);
+		b910 = readl(mfg_top + 0x910);
+		b918 = readl(mfg_top + 0x918);
+		b900 = readl(mfg_top + 0x900);
+		b908 = readl(mfg_top + 0x908);
+		b920 = readl(mfg_top + 0x920);
+		b928 = readl(mfg_top + 0x928);
 
-		val = readl(mfg_top + 0x8E8);
-		val |= 0x855;
-		writel(val, mfg_top + 0x8E8);
+		dev_info(kbdev->dev, "[CSF HW-SEQ] ACP BEFORE: 168=%08x 8e0=%08x 8e8=%08x 900=%08x 908=%08x 910=%08x 918=%08x 920=%08x 928=%08x\n",
+			b168, b8e0, b8e8, b900, b908, b910, b918, b920, b928);
 
-		val = readl(mfg_top + 0x910);
-		val |= 0x855;
-		writel(val, mfg_top + 0x910);
+		writel(b168 | 0xF,   mfg_top + 0x168);
+		writel(b8e0 | 0x855, mfg_top + 0x8E0);
+		writel(b8e8 | 0x855, mfg_top + 0x8E8);
+		writel(b910 | 0x855, mfg_top + 0x910);
+		writel(b918 | 0x855, mfg_top + 0x918);
+		writel(b900 | 0x55,  mfg_top + 0x900);
+		writel(b908 | 0x55,  mfg_top + 0x908);
+		writel(b920 | 0x55,  mfg_top + 0x920);
+		writel(b928 | 0x55,  mfg_top + 0x928);
 
-		val = readl(mfg_top + 0x918);
-		val |= 0x855;
-		writel(val, mfg_top + 0x918);
-
-		val = readl(mfg_top + 0x920);
-		val |= 0x55;
-		writel(val, mfg_top + 0x920);
-
-		val = readl(mfg_top + 0x928);
-		val |= 0x55;
-		writel(val, mfg_top + 0x928);
-
-		dev_info(kbdev->dev, "[CSF HW-SEQ] ACP 0x168=0x%08x 0x8E0=0x%08x 0x920=0x%08x\n",
-			readl(mfg_top + 0x168), readl(mfg_top + 0x8E0), readl(mfg_top + 0x920));
+		dev_info(kbdev->dev, "[CSF HW-SEQ] ACP AFTER:  168=%08x 8e0=%08x 8e8=%08x 900=%08x 908=%08x 910=%08x 918=%08x 920=%08x 928=%08x\n",
+			readl(mfg_top + 0x168), readl(mfg_top + 0x8E0), readl(mfg_top + 0x8E8),
+			readl(mfg_top + 0x900), readl(mfg_top + 0x908),
+			readl(mfg_top + 0x910), readl(mfg_top + 0x918),
+			readl(mfg_top + 0x920), readl(mfg_top + 0x928));
 	}
 
 	iounmap(mfg_top);

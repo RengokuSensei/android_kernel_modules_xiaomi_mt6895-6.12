@@ -45,6 +45,7 @@
 #include <linux/set_memory.h>
 #endif
 #include <mmu/mali_kbase_mmu.h>
+#include <mmu/mali_kbase_mmu_hw.h>
 #include <asm/arch_timer.h>
 #include <linux/delay.h>
 #include <linux/highmem.h>
@@ -2178,6 +2179,7 @@ static void kbase_csf_dump_ping_timeout_diagnostics(struct kbase_device *kbdev, 
 			gpu_raw, gpu_stat, gpu_mask, gpu_status, gpu_fault);
 		dev_err(kbdev->dev, "[CSF TIMEOUT DIAG] MCU: CTRL=0x%08x STAT=0x%08x\n",
 			mcu_ctrl, mcu_stat);
+		kbase_mmu_dump_as_diagnostics(kbdev, "PING_TIMEOUT", -1);
 	}
 
 	/* 2. Global and CSG0 Interface State */
@@ -2198,7 +2200,9 @@ static void kbase_csf_dump_ping_timeout_diagnostics(struct kbase_device *kbdev, 
 	/* 3. Non-blocking reads of stack pages (PSP 0x0203e000 & MSP 0x0203f000) */
 	list_for_each_entry(iface, &kbdev->csf.firmware_interfaces, node) {
 		u32 start_va, end_va;
-		if (!iface->kernel_map || iface->num_pages == 0)
+		if (iface->num_pages == 0)
+			continue;
+		if (!iface->kernel_map && !iface->phys)
 			continue;
 		if ((iface->flags & CSF_FIRMWARE_ENTRY_PROTECTED) || iface->pma != NULL)
 			continue;
@@ -2209,43 +2213,93 @@ static void kbase_csf_dump_ping_timeout_diagnostics(struct kbase_device *kbdev, 
 		/* PSP Stack Page (0x0203e000) */
 		if (start_va <= 0x0203e000 && end_va > 0x0203e000) {
 			u32 page_idx = (0x0203e000 - start_va) / PAGE_SIZE;
-			u32 *words = (u32 *)iface->kernel_map + (page_idx * (PAGE_SIZE / 4));
-			int w, nz = 0;
-			dev_info(kbdev->dev, "[CSF TIMEOUT DIAG] Dumping PSP Stack page (0x0203e000) in '%s':\n",
-				 iface->name ? iface->name : "unnamed");
-			for (w = 0; w < (PAGE_SIZE / 4); w += 8) {
-				u32 w0 = READ_ONCE(words[w+0]), w1 = READ_ONCE(words[w+1]);
-				u32 w2 = READ_ONCE(words[w+2]), w3 = READ_ONCE(words[w+3]);
-				u32 w4 = READ_ONCE(words[w+4]), w5 = READ_ONCE(words[w+5]);
-				u32 w6 = READ_ONCE(words[w+6]), w7 = READ_ONCE(words[w+7]);
-				if (w0 | w1 | w2 | w3 | w4 | w5 | w6 | w7) {
-					dev_info(kbdev->dev, "[PSP +0x%03x]: %08x %08x %08x %08x %08x %08x %08x %08x\n",
-						 w * 4, w0, w1, w2, w3, w4, w5, w6, w7);
-					nz++;
+			u32 *words = NULL;
+			bool need_kunmap = false;
+
+			if (iface->kernel_map) {
+				words = (u32 *)iface->kernel_map + (page_idx * (PAGE_SIZE / 4));
+			} else if (iface->phys) {
+				phys_addr_t pa = as_phys_addr_t(iface->phys[page_idx]);
+				unsigned long pfn;
+				struct page *pg;
+
+				if (pa < 0x78c00000 || pa > 0x79ffffff) {
+					pfn = __phys_to_pfn(pa);
+					if (pfn_valid(pfn)) {
+						pg = pfn_to_page(pfn);
+						if (pg) {
+							words = kmap_local_page(pg);
+							need_kunmap = true;
+						}
+					}
 				}
 			}
-			dev_info(kbdev->dev, "[CSF TIMEOUT DIAG] PSP page total non-zero rows: %d / 128\n", nz);
+
+			if (words) {
+				int w, nz = 0;
+				dev_info(kbdev->dev, "[CSF TIMEOUT DIAG] Dumping PSP Stack page (0x0203e000) in '%s':\n",
+					 iface->name ? iface->name : "unnamed");
+				for (w = 0; w < (PAGE_SIZE / 4); w += 8) {
+					u32 w0 = READ_ONCE(words[w+0]), w1 = READ_ONCE(words[w+1]);
+					u32 w2 = READ_ONCE(words[w+2]), w3 = READ_ONCE(words[w+3]);
+					u32 w4 = READ_ONCE(words[w+4]), w5 = READ_ONCE(words[w+5]);
+					u32 w6 = READ_ONCE(words[w+6]), w7 = READ_ONCE(words[w+7]);
+					if (w0 | w1 | w2 | w3 | w4 | w5 | w6 | w7) {
+						dev_info(kbdev->dev, "[PSP +0x%03x]: %08x %08x %08x %08x %08x %08x %08x %08x\n",
+							 w * 4, w0, w1, w2, w3, w4, w5, w6, w7);
+						nz++;
+					}
+				}
+				dev_info(kbdev->dev, "[CSF TIMEOUT DIAG] PSP page total non-zero rows: %d / 128\n", nz);
+				if (need_kunmap)
+					kunmap_local(words);
+			}
 		}
 
 		/* MSP Stack Page (0x0203f000) */
 		if (start_va <= 0x0203f000 && end_va > 0x0203f000) {
 			u32 page_idx = (0x0203f000 - start_va) / PAGE_SIZE;
-			u32 *words = (u32 *)iface->kernel_map + (page_idx * (PAGE_SIZE / 4));
-			int w, nz = 0;
-			dev_info(kbdev->dev, "[CSF TIMEOUT DIAG] Dumping MSP Stack page (0x0203f000) in '%s':\n",
-				 iface->name ? iface->name : "unnamed");
-			for (w = 0; w < (PAGE_SIZE / 4); w += 8) {
-				u32 w0 = READ_ONCE(words[w+0]), w1 = READ_ONCE(words[w+1]);
-				u32 w2 = READ_ONCE(words[w+2]), w3 = READ_ONCE(words[w+3]);
-				u32 w4 = READ_ONCE(words[w+4]), w5 = READ_ONCE(words[w+5]);
-				u32 w6 = READ_ONCE(words[w+6]), w7 = READ_ONCE(words[w+7]);
-				if (w0 | w1 | w2 | w3 | w4 | w5 | w6 | w7) {
-					dev_info(kbdev->dev, "[MSP +0x%03x]: %08x %08x %08x %08x %08x %08x %08x %08x\n",
-						 w * 4, w0, w1, w2, w3, w4, w5, w6, w7);
-					nz++;
+			u32 *words = NULL;
+			bool need_kunmap = false;
+
+			if (iface->kernel_map) {
+				words = (u32 *)iface->kernel_map + (page_idx * (PAGE_SIZE / 4));
+			} else if (iface->phys) {
+				phys_addr_t pa = as_phys_addr_t(iface->phys[page_idx]);
+				unsigned long pfn;
+				struct page *pg;
+
+				if (pa < 0x78c00000 || pa > 0x79ffffff) {
+					pfn = __phys_to_pfn(pa);
+					if (pfn_valid(pfn)) {
+						pg = pfn_to_page(pfn);
+						if (pg) {
+							words = kmap_local_page(pg);
+							need_kunmap = true;
+						}
+					}
 				}
 			}
-			dev_info(kbdev->dev, "[CSF TIMEOUT DIAG] MSP page total non-zero rows: %d / 128\n", nz);
+
+			if (words) {
+				int w, nz = 0;
+				dev_info(kbdev->dev, "[CSF TIMEOUT DIAG] Dumping MSP Stack page (0x0203f000) in '%s':\n",
+					 iface->name ? iface->name : "unnamed");
+				for (w = 0; w < (PAGE_SIZE / 4); w += 8) {
+					u32 w0 = READ_ONCE(words[w+0]), w1 = READ_ONCE(words[w+1]);
+					u32 w2 = READ_ONCE(words[w+2]), w3 = READ_ONCE(words[w+3]);
+					u32 w4 = READ_ONCE(words[w+4]), w5 = READ_ONCE(words[w+5]);
+					u32 w6 = READ_ONCE(words[w+6]), w7 = READ_ONCE(words[w+7]);
+					if (w0 | w1 | w2 | w3 | w4 | w5 | w6 | w7) {
+						dev_info(kbdev->dev, "[MSP +0x%03x]: %08x %08x %08x %08x %08x %08x %08x %08x\n",
+							 w * 4, w0, w1, w2, w3, w4, w5, w6, w7);
+						nz++;
+					}
+				}
+				dev_info(kbdev->dev, "[CSF TIMEOUT DIAG] MSP page total non-zero rows: %d / 128\n", nz);
+				if (need_kunmap)
+					kunmap_local(words);
+			}
 		}
 
 		/* Shared Interface Pages 0 & 1 Checksums */
