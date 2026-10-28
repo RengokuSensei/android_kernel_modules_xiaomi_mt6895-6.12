@@ -79,3 +79,5 @@ obj-$(CONFIG_XM_QC_MANAGER) += pmic_voter.o
 
 # xaga: platform module wiring
 obj-m += mt6375-charger.o
+obj-m += mt6375-battery.o
+mt6375-battery-y := mtk_battery.o mtk_battery_algo.o mtk_battery_coulomb_service.o mtk_battery_daemon.o mtk_battery_interface.o mt6375-gauge.o

@@ -47,9 +47,9 @@ bool mali_force_dma32 = true;
 module_param(mali_force_dma32, bool, 0644);
 MODULE_PARM_DESC(mali_force_dma32, "Force GPU memory allocations from ZONE_DMA32 (< 4GB)");
 
-uint mali_strip_share = 1;
+uint mali_strip_share = 0;
 module_param(mali_strip_share, uint, 0644);
-MODULE_PARM_DESC(mali_strip_share, "Strip shareable PTE bits (default 1=force non-shareable PTEs, 0=unchanged)");
+MODULE_PARM_DESC(mali_strip_share, "Strip shareable PTE bits (default 0=unchanged/stock, 1=force non-shareable PTEs)");
 
 /**
  * can_alloc_page() - Check if the current thread can allocate a physical page

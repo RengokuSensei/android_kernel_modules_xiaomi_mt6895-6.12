@@ -1688,6 +1688,20 @@ int kbase_mmu_insert_pages(struct kbase_device *kbdev,
 {
 	int err;
 
+	if (as_nr == MCU_AS_NR) {
+		static atomic_t as0_map_cnt = ATOMIC_INIT(0);
+		int cnt = atomic_inc_return(&as0_map_cnt);
+		if (cnt <= 32) {
+			dev_info(kbdev->dev,
+				"[CSF AS0 MAP #%d] vpfn=0x%llx nr=%zu flags=0x%lx (SHARE_IN=%d SHARE_BOTH=%d CACHED=%d MEMATTR=%u)\n",
+				cnt, vpfn, nr, flags,
+				!!(flags & KBASE_REG_SHARE_IN),
+				!!(flags & KBASE_REG_SHARE_BOTH),
+				!!(flags & KBASE_REG_GPU_CACHED),
+				(u32)KBASE_REG_MEMATTR_VALUE(flags));
+		}
+	}
+
 	err = kbase_mmu_insert_pages_no_flush(kbdev, mmut, vpfn,
 			phys, nr, flags, group_id);
     

@@ -26,6 +26,7 @@
 #include <tl/mali_kbase_tracepoints.h>
 #include <device/mali_kbase_device.h>
 #include <linux/delay.h>
+#include <linux/nmi.h>
 
 #if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
 #include <mtk_gpufreq.h>
@@ -150,94 +151,28 @@ static int lock_region(u64 pfn, u32 num_pages, u64 *lockaddr)
 static int wait_ready(struct kbase_device *kbdev,
 		unsigned int as_nr)
 {
-#if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
-	bool early_timeouts = false;
-#endif
-	unsigned int max_loops = KBASE_AS_INACTIVE_MAX_LOOPS;
+	unsigned int max_loops = 100000; /* 100ms max with 1us delay per loop */
 	u32 val = kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_STATUS));
 
 	/* Wait for the MMU status to indicate there is no active command, in
 	 * case one is pending. Do not log remaining register accesses.
 	 */
 	while (--max_loops && (val & AS_STATUS_AS_ACTIVE)) {
-		cpu_relax();
+		touch_softlockup_watchdog();
+		udelay(1);
 		val = kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_STATUS));
-#if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
-		if((max_loops == KBASE_AS_INACTIVE_DUMP_POINT_1S) ||
-			(max_loops == KBASE_AS_INACTIVE_DUMP_POINT_3S) ||
-			(max_loops == KBASE_AS_INACTIVE_DUMP_POINT_5S) ||
-			(max_loops == KBASE_AS_INACTIVE_DUMP_POINT_8S)) {
-			dev_info(kbdev->dev, "%s: Early dump for MMU not ready, remain loops: %d", __func__, max_loops);
-			ged_log_buf_print2(
-				kbdev->ged_log_buf_hnd_kbase, GED_LOG_ATTR_TIME,
-				"%s: Early dump for MMU not ready, remain loops: %d\n",
-				__func__, max_loops);
-		}
-		if (max_loops == KBASE_AS_INACTIVE_DUMP_POINT_3S) {
-			early_timeouts = true;
-			break;
-		}
-#endif /* CONFIG_MALI_MTK_DEBUG */
 	}
 
-#if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
-	if (early_timeouts || max_loops == 0) {
-		dev_info(kbdev->dev,
-			"AS_ACTIVE bit stuck for as %u, might be caused by slow/unstable GPU clock or possible faulty FPGA connector, early_timeouts=%d max_loops=%d",
-			as_nr, early_timeouts, max_loops);
-		ged_log_buf_print2(
-			kbdev->ged_log_buf_hnd_kbase, GED_LOG_ATTR_TIME,
-			"AS_ACTIVE bit stuck for as %u, might be caused by slow/unstable GPU clock or possible faulty FPGA connector, early_timeouts=%d max_loops=%d\n",
-			as_nr, early_timeouts, max_loops);
-		if (!mtk_common_gpufreq_bringup()) {
-			mtk_common_debug_dump();
-#if defined(CONFIG_MTK_GPUFREQ_V2)
-			gpufreq_dump_infra_status();
-#else
-			mt_gpufreq_dump_infra_status();
-#endif /* CONFIG_MTK_GPUFREQ_V2 */
-		}
-
-#if IS_ENABLED(CONFIG_MALI_MTK_TIMEOUT_RESET)
-		spin_lock(&kbdev->reset_force_change);
-		kbdev->reset_force_evict_group_work = true;
-		kbdev->reset_force_hard_reset = true;
-		spin_unlock(&kbdev->reset_force_change);
-		if (kbase_prepare_to_reset_gpu(kbdev, RESET_FLAGS_NONE)) {
-			dev_info(kbdev->dev, "Trigger GPU reset for MMU as command timeouts, early_timeouts=%d max_loops=%d",
-			         early_timeouts, max_loops);
-#if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
-			ged_log_buf_print2(
-				kbdev->ged_log_buf_hnd_kbase, GED_LOG_ATTR_TIME,
-				"Trigger GPU reset for MMU as command timeouts, early_timeouts=%d max_loops=%d\n",
-				early_timeouts, max_loops);
-#endif
-			kbase_reset_gpu(kbdev);
-		} else {
-			dev_info(kbdev->dev, "MMU as command timeouts! Other threads are already resetting the GPU, early_timeouts=%d max_loops=%d",
-			         early_timeouts, max_loops);
-#if IS_ENABLED(CONFIG_MALI_MTK_DEBUG)
-			ged_log_buf_print2(
-				kbdev->ged_log_buf_hnd_kbase, GED_LOG_ATTR_TIME,
-				"MMU as command timeouts! Other threads are already resetting the GPU, early_timeouts=%d max_loops=%d\n",
-				early_timeouts, max_loops);
-#endif
-		}
-#endif
-		return -1;
-	}
-#else
 	if (WARN_ON_ONCE(max_loops == 0)) {
-		dev_info(kbdev->dev,
-			"AS_ACTIVE bit stuck for as %u, might be caused by slow/unstable GPU clock or possible faulty FPGA connector",
-			as_nr);
+		dev_warn(kbdev->dev,
+			"AS_ACTIVE bit stuck for as %u after 100ms, might be caused by slow/unstable GPU clock or possible faulty FPGA connector (val=0x%08x)\n",
+			as_nr, val);
 		kbase_mmu_dump_as_diagnostics(kbdev, "AS_ACTIVE_STUCK", as_nr);
 		return -1;
 	}
-#endif
 
 	/* If waiting in loop was performed, log last read value. */
-	if (KBASE_AS_INACTIVE_MAX_LOOPS - 1 > max_loops)
+	if (max_loops < 100000 - 1)
 		kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_STATUS));
 
 	return 0;
