@@ -536,15 +536,21 @@ static void kbase_mmu_gpu_fault_worker(struct work_struct *data)
 	address = fault->addr;
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
 
-	dev_warn(kbdev->dev,
-		 "GPU Fault 0x%08x (%s) in AS%u at 0x%016llx\n"
-		 "ASID_VALID: %s,  ADDRESS_VALID: %s\n",
-		 status,
-		 kbase_gpu_exception_name(
-			GPU_FAULTSTATUS_EXCEPTION_TYPE_GET(status)),
-		 as_nr, address,
-		 as_valid ? "true" : "false",
-		 status & GPU_FAULTSTATUS_ADDR_VALID_FLAG ? "true" : "false");
+	{
+		static atomic_t total_fault_count = ATOMIC_INIT(0);
+		int fault_nr = atomic_inc_return(&total_fault_count);
+		bool addr_valid = (status & GPU_FAULTSTATUS_ADDR_VALID_FLAG) != 0;
+
+		dev_warn_ratelimited(kbdev->dev,
+			"GPU Fault (total %d) 0x%08x (%s) in AS%u at 0x%016llx (ASID_VALID: %s, ADDR_VALID: %s)\n",
+			fault_nr,
+			status,
+			kbase_gpu_exception_name(
+				GPU_FAULTSTATUS_EXCEPTION_TYPE_GET(status)),
+			as_nr, address,
+			as_valid ? "true" : "false",
+			addr_valid ? "true" : "false");
+	}
 
 	kctx = kbase_ctx_sched_as_to_ctx(kbdev, as_nr);
 	kbase_csf_ctx_handle_fault(kctx, fault);

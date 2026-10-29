@@ -1372,6 +1372,9 @@ static void mmu_flush_invalidate_insert_pages(struct kbase_device *kbdev,
 				as_nr);
 }
 
+static atomic_t kbase_mmu_diag_map_seq = ATOMIC_INIT(0);
+static atomic_t kbase_mmu_large_map_cnt = ATOMIC_INIT(0);
+
 /*
  * Map the single page 'phys' 'nr' of times, starting at GPU PFN 'vpfn'
  */
@@ -1403,6 +1406,37 @@ int kbase_mmu_insert_single_page(struct kbase_context *kctx, u64 vpfn,
 	/* Early out if there is nothing to do */
 	if (nr == 0)
 		return 0;
+
+	{
+		int seq = atomic_inc_return(&kbase_mmu_diag_map_seq);
+		bool log_it = (seq <= 500);
+		if (!log_it && nr >= 256)
+			log_it = (atomic_inc_return(&kbase_mmu_large_map_cnt) <= 300);
+
+		if (log_it) {
+			phys_addr_t pa = as_phys_addr_t(phys);
+			u64 sample_pte = 0;
+			int raw_as = (kctx->as_nr != KBASEP_AS_NR_INVALID) ? kctx->as_nr : -1;
+
+			if (kbdev->mmu_mode && kbdev->mmu_mode->entry_set_ate)
+				kbdev->mmu_mode->entry_set_ate(&sample_pte, phys, flags, MIDGARD_MMU_BOTTOMLEVEL);
+
+			dev_info(kbdev->dev,
+				"[MMU MAP SINGLE #%d as_nr=%d (%s) kctx=%d] VA=0x%llx..0x%llx (%zu pgs) PA=0x%llx flags=0x%lx PTE=0x%016llx (SH=%u ATTR=%u IN=%d BOTH=%d CACHED=%d)\n",
+				seq, raw_as, (raw_as >= 0 ? "ASSIGNED_AS" : "UNASSIGNED"), (int)kctx->id,
+				(u64)vpfn << PAGE_SHIFT,
+				((u64)vpfn + nr) << PAGE_SHIFT,
+				nr,
+				(u64)pa,
+				flags,
+				sample_pte,
+				(u32)((sample_pte >> 8) & 3),
+				(u32)((sample_pte >> 2) & 7),
+				!!(flags & KBASE_REG_SHARE_IN),
+				!!(flags & KBASE_REG_SHARE_BOTH),
+				!!(flags & KBASE_REG_GPU_CACHED));
+		}
+	}
 
 	rt_mutex_lock(&kctx->mmu.mmu_lock);
 
@@ -1552,6 +1586,40 @@ int kbase_mmu_insert_pages_no_flush(struct kbase_device *kbdev,
 	if (nr == 0)
 		return 0;
 
+	{
+		int seq = atomic_inc_return(&kbase_mmu_diag_map_seq);
+		bool log_it = (seq <= 500);
+		if (!log_it && nr >= 256)
+			log_it = (atomic_inc_return(&kbase_mmu_large_map_cnt) <= 300);
+
+		if (log_it) {
+			bool is_as0 = (mmut->kctx == NULL || mmut == &kbdev->csf.mcu_mmu);
+			int raw_as = is_as0 ? 0 : (mmut->kctx ? mmut->kctx->as_nr : -1);
+			int ctx_id = mmut->kctx ? (int)mmut->kctx->id : -1;
+			phys_addr_t first_pa = (phys && nr > 0) ? as_phys_addr_t(phys[0]) : 0;
+			phys_addr_t last_pa = (phys && nr > 1) ? as_phys_addr_t(phys[nr - 1]) : first_pa;
+			u64 sample_pte = 0;
+
+			if (phys && nr > 0 && kbdev->mmu_mode && kbdev->mmu_mode->entry_set_ate)
+				kbdev->mmu_mode->entry_set_ate(&sample_pte, phys[0], flags, MIDGARD_MMU_BOTTOMLEVEL);
+
+			dev_info(kbdev->dev,
+				"[MMU MAP #%d as_nr=%d (%s) kctx=%d] VA=0x%llx..0x%llx (%zu pgs) PA=0x%llx..0x%llx flags=0x%lx PTE=0x%016llx (SH=%u ATTR=%u IN=%d BOTH=%d CACHED=%d)\n",
+				seq, raw_as, (is_as0 ? "MCU_AS0" : (raw_as >= 0 ? "ASSIGNED_AS" : "UNASSIGNED")), ctx_id,
+				(u64)start_vpfn << PAGE_SHIFT,
+				((u64)start_vpfn + nr) << PAGE_SHIFT,
+				nr,
+				(u64)first_pa, (u64)last_pa,
+				flags,
+				sample_pte,
+				(u32)((sample_pte >> 8) & 3),
+				(u32)((sample_pte >> 2) & 7),
+				!!(flags & KBASE_REG_SHARE_IN),
+				!!(flags & KBASE_REG_SHARE_BOTH),
+				!!(flags & KBASE_REG_GPU_CACHED));
+		}
+	}
+
 	rt_mutex_lock(&mmut->mmu_lock);
 
 	while (remain) {
@@ -1687,20 +1755,6 @@ int kbase_mmu_insert_pages(struct kbase_device *kbdev,
 		unsigned long flags, int as_nr, int const group_id)
 {
 	int err;
-
-	if (as_nr == MCU_AS_NR) {
-		static atomic_t as0_map_cnt = ATOMIC_INIT(0);
-		int cnt = atomic_inc_return(&as0_map_cnt);
-		if (cnt <= 32) {
-			dev_info(kbdev->dev,
-				"[CSF AS0 MAP #%d] vpfn=0x%llx nr=%zu flags=0x%lx (SHARE_IN=%d SHARE_BOTH=%d CACHED=%d MEMATTR=%u)\n",
-				cnt, vpfn, nr, flags,
-				!!(flags & KBASE_REG_SHARE_IN),
-				!!(flags & KBASE_REG_SHARE_BOTH),
-				!!(flags & KBASE_REG_GPU_CACHED),
-				(u32)KBASE_REG_MEMATTR_VALUE(flags));
-		}
-	}
 
 	err = kbase_mmu_insert_pages_no_flush(kbdev, mmut, vpfn,
 			phys, nr, flags, group_id);
@@ -1994,6 +2048,26 @@ int kbase_mmu_teardown_pages(struct kbase_device *kbdev,
 		return 0;
 	}
 
+	{
+		int seq = atomic_inc_return(&kbase_mmu_diag_map_seq);
+		bool log_it = (seq <= 500);
+		if (!log_it && nr >= 256)
+			log_it = (atomic_inc_return(&kbase_mmu_large_map_cnt) <= 300);
+
+		if (log_it) {
+			bool is_as0 = (mmut->kctx == NULL || mmut == &kbdev->csf.mcu_mmu);
+			int raw_as = is_as0 ? 0 : (mmut->kctx ? mmut->kctx->as_nr : as_nr);
+			int ctx_id = mmut->kctx ? (int)mmut->kctx->id : -1;
+
+			dev_info(kbdev->dev,
+				"[MMU TEARDOWN #%d as_nr=%d (%s) kctx=%d] VA=0x%llx..0x%llx (%zu pgs)\n",
+				seq, raw_as, (is_as0 ? "MCU_AS0" : (raw_as >= 0 ? "ASSIGNED_AS" : "UNASSIGNED")), ctx_id,
+				(u64)vpfn << PAGE_SHIFT,
+				((u64)vpfn + nr) << PAGE_SHIFT,
+				nr);
+		}
+	}
+
 	if (!rt_mutex_trylock(&mmut->mmu_lock)) {
 		/*
 		 * Sometimes, mmu_lock takes long time to be released.
@@ -2176,6 +2250,38 @@ static int kbase_mmu_update_pages_no_flush(struct kbase_context *kctx, u64 vpfn,
 	/* Early out if there is nothing to do */
 	if (nr == 0)
 		return 0;
+
+	{
+		int seq = atomic_inc_return(&kbase_mmu_diag_map_seq);
+		bool log_it = (seq <= 500);
+		if (!log_it && nr >= 256)
+			log_it = (atomic_inc_return(&kbase_mmu_large_map_cnt) <= 300);
+
+		if (log_it) {
+			int raw_as = (kctx->as_nr != KBASEP_AS_NR_INVALID) ? kctx->as_nr : -1;
+			phys_addr_t first_pa = (phys && nr > 0) ? as_phys_addr_t(phys[0]) : 0;
+			phys_addr_t last_pa = (phys && nr > 1) ? as_phys_addr_t(phys[nr - 1]) : first_pa;
+			u64 sample_pte = 0;
+
+			if (phys && nr > 0 && kctx->kbdev->mmu_mode && kctx->kbdev->mmu_mode->entry_set_ate)
+				kctx->kbdev->mmu_mode->entry_set_ate(&sample_pte, phys[0], flags, MIDGARD_MMU_BOTTOMLEVEL);
+
+			dev_info(kctx->kbdev->dev,
+				"[MMU UPDATE #%d as_nr=%d (%s) kctx=%d] VA=0x%llx..0x%llx (%zu pgs) PA=0x%llx..0x%llx flags=0x%lx PTE=0x%016llx (SH=%u ATTR=%u IN=%d BOTH=%d CACHED=%d)\n",
+				seq, raw_as, (raw_as >= 0 ? "ASSIGNED_AS" : "UNASSIGNED"), (int)kctx->id,
+				(u64)vpfn << PAGE_SHIFT,
+				((u64)vpfn + nr) << PAGE_SHIFT,
+				nr,
+				(u64)first_pa, (u64)last_pa,
+				flags,
+				sample_pte,
+				(u32)((sample_pte >> 8) & 3),
+				(u32)((sample_pte >> 2) & 7),
+				!!(flags & KBASE_REG_SHARE_IN),
+				!!(flags & KBASE_REG_SHARE_BOTH),
+				!!(flags & KBASE_REG_GPU_CACHED));
+		}
+	}
 
 	rt_mutex_lock(&kctx->mmu.mmu_lock);
 

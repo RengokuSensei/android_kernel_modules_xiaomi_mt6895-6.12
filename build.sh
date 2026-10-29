@@ -549,6 +549,13 @@ for line in lines:
         add = [d for d in extra if d not in deps.split()]
         if add:
             line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
+    # mt6375-battery.ko must load after mt6375 core, auxadc, adc and charger framework
+    if line.startswith('mt6375-battery.ko:'):
+        deps = line.rstrip('\n').split(':', 1)[1]
+        extra = ['mt6375.ko', 'mt6375-auxadc.ko', 'mt6375-adc.ko', 'mtk_charger_framework.ko', 'charger_class.ko']
+        add = [d for d in extra if d not in deps.split()]
+        if add:
+            line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
     out.append(line)
 with open(dep_path, 'w') as f:
     f.writelines(out)
