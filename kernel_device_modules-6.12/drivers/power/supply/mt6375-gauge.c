@@ -558,8 +558,15 @@ static int gauge_get_all_interrupts(struct mt6375_priv *priv)
 
 	for (i = 0; i < GAUGE_IRQ_MAX; i++) {
 		irq_no = platform_get_irq_byname(pdev, irq_names[i]);
-		if (irq_no < 0)
+		if (irq_no < 0) {
+			if (strcmp(irq_names[i], "BAT_IN") == 0) {
+				dev_info(priv->dev, "Optional IRQ %s not found (normal on xaga), skipping\n",
+					 irq_names[i]);
+				gauge->irq_no[i] = -1;
+				continue;
+			}
 			return irq_no;
+		}
 
 		irq_set_status_flags(irq_no, IRQ_NOAUTOEN);
 		gauge->irq_no[i] = irq_no;

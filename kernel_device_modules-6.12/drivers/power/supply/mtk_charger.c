@@ -3378,7 +3378,8 @@ static void mtk_charger_init_timer(struct mtk_charger *info)
 static int mtk_charger_setup_files(struct platform_device *pdev)
 {
 	int ret = 0;
-	struct proc_dir_entry *battery_dir = NULL, *entry = NULL;
+	static struct proc_dir_entry *battery_dir;
+	struct proc_dir_entry *entry = NULL;
 	struct mtk_charger *info = platform_get_drvdata(pdev);
 
 	ret = device_create_file(&(pdev->dev), &dev_attr_sw_jeita);
@@ -3489,6 +3490,9 @@ static int mtk_charger_setup_files(struct platform_device *pdev)
 	if (ret)
 		goto _out;
 
+	if (battery_dir)
+		return 0;
+
 	battery_dir = proc_mkdir("mtk_battery_cmd", NULL);
 	if (!battery_dir) {
 		chr_err("%s: mkdir /proc/mtk_battery_cmd failed\n", __func__);
@@ -3524,6 +3528,7 @@ static int mtk_charger_setup_files(struct platform_device *pdev)
 
 fail_procfs:
 	remove_proc_subtree("mtk_battery_cmd", NULL);
+	battery_dir = NULL;
 _out:
 	return ret;
 }

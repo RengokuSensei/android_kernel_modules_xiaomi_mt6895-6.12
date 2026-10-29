@@ -6099,12 +6099,14 @@ int mtk_battery_daemon_init(struct platform_device *pdev)
 		"mtk_gauge_bat_plugout",
 		gm);
 
-		ret |= devm_request_threaded_irq(&gm->gauge->pdev->dev,
-		gm->gauge->irq_no[BAT_PLUGIN_IRQ],
-		NULL, bat_plugin_irq,
-		IRQF_ONESHOT | IRQF_TRIGGER_HIGH,
-		"mtk_gauge_bat_plugin",
-		gm);
+		if (gm->gauge->irq_no[BAT_PLUGIN_IRQ] > 0) {
+			ret |= devm_request_threaded_irq(&gm->gauge->pdev->dev,
+			gm->gauge->irq_no[BAT_PLUGIN_IRQ],
+			NULL, bat_plugin_irq,
+			IRQF_ONESHOT | IRQF_TRIGGER_HIGH,
+			"mtk_gauge_bat_plugin",
+			gm);
+		}
 
 		ret |= devm_request_threaded_irq(&gm->gauge->pdev->dev,
 		gm->gauge->irq_no[FG_N_CHARGE_L_IRQ],
