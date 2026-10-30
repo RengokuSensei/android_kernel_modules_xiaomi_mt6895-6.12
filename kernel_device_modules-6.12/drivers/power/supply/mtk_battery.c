@@ -3293,11 +3293,19 @@ static int mtk_battery_get_property(struct power_supply *psy,
 	return 0;
 }
 
+static struct power_supply_desc mtk_battery_psd = {
+	.name = "battery",
+	.type = POWER_SUPPLY_TYPE_BATTERY,
+	.properties = mtk_battery_props,
+	.num_properties = ARRAY_SIZE(mtk_battery_props),
+	.get_property = mtk_battery_get_property,
+};
+static struct power_supply *mtk_battery_psy;
+
 int battery_psy_init(struct platform_device *pdev)
 {
 	struct mtk_battery *gm;
 	struct mtk_gauge *gauge;
-	struct power_supply_desc *psd;
 	struct power_supply_config psy_cfg = {};
 
 	gm = devm_kzalloc(&pdev->dev, sizeof(*gm), GFP_KERNEL);
@@ -3311,19 +3319,12 @@ int battery_psy_init(struct platform_device *pdev)
 	mutex_init(&gm->ops_lock);
 	gmb = gm;
 
-	psd = &gm->bs_data.psd;
-	psd->name = "battery";
-	psd->type = POWER_SUPPLY_TYPE_BATTERY;
-	psd->properties = mtk_battery_props;
-	psd->num_properties = ARRAY_SIZE(mtk_battery_props);
-	psd->get_property = mtk_battery_get_property;
-
 	psy_cfg.drv_data = gm;
-	gm->bs_data.psy = power_supply_register(&pdev->dev, psd, &psy_cfg);
-	if (IS_ERR(gm->bs_data.psy)) {
+	mtk_battery_psy = power_supply_register(&pdev->dev, &mtk_battery_psd, &psy_cfg);
+	if (IS_ERR(mtk_battery_psy)) {
 		pr_err("battery_psy_init: failed to register battery power supply: %ld\n",
-			PTR_ERR(gm->bs_data.psy));
-		return PTR_ERR(gm->bs_data.psy);
+			PTR_ERR(mtk_battery_psy));
+		return PTR_ERR(mtk_battery_psy);
 	}
 	pr_info("battery_psy_init: registered /sys/class/power_supply/battery successfully\n");
 
