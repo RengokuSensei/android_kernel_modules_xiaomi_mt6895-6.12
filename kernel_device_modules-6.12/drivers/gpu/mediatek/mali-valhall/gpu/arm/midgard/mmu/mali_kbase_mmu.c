@@ -1603,20 +1603,43 @@ int kbase_mmu_insert_pages_no_flush(struct kbase_device *kbdev,
 			if (phys && nr > 0 && kbdev->mmu_mode && kbdev->mmu_mode->entry_set_ate)
 				kbdev->mmu_mode->entry_set_ate(&sample_pte, phys[0], flags, MIDGARD_MMU_BOTTOMLEVEL);
 
+			char flag_str[128];
+			snprintf(flag_str, sizeof(flag_str),
+				"%s%s%s%s%s%s%s%s%s%s%s%s%s",
+				(flags & KBASE_REG_GROWABLE) ? "GROW " : "",
+				(flags & KBASE_REG_PF_GROW) ? "PF_GROW " : "",
+				(flags & KBASE_REG_GPU_RD) ? "GPU_RD " : "",
+				(flags & KBASE_REG_GPU_WR) ? "GPU_WR " : "",
+				(flags & KBASE_REG_CPU_RD) ? "CPU_RD " : "",
+				(flags & KBASE_REG_CPU_WR) ? "CPU_WR " : "",
+				(flags & KBASE_REG_GPU_CACHED) ? "GPU_CACHED " : "",
+				(flags & KBASE_REG_CPU_CACHED) ? "CPU_CACHED " : "",
+				(flags & KBASE_REG_SHARE_IN) ? "SHARE_IN " : "",
+				(flags & KBASE_REG_SHARE_BOTH) ? "SHARE_BOTH " : "",
+				(flags & KBASE_REG_PROTECTED) ? "PROT " : "",
+				(flags & KBASE_REG_GPU_NX) ? "NX " : "",
+				(flags & KBASE_REG_CSF_EVENT) ? "CSF_EVENT " : "");
+
 			dev_info(kbdev->dev,
-				"[MMU MAP #%d as_nr=%d (%s) kctx=%d] VA=0x%llx..0x%llx (%zu pgs) PA=0x%llx..0x%llx flags=0x%lx PTE=0x%016llx (SH=%u ATTR=%u IN=%d BOTH=%d CACHED=%d)\n",
+				"[MMU MAP #%d as_nr=%d (%s) kctx=%d] VA=0x%llx..0x%llx (%zu pgs) PA=0x%llx..0x%llx flags=0x%lx[%s] PTE=0x%016llx (SH=%u ATTR=%u)\n",
 				seq, raw_as, (is_as0 ? "MCU_AS0" : (raw_as >= 0 ? "ASSIGNED_AS" : "UNASSIGNED")), ctx_id,
 				(u64)start_vpfn << PAGE_SHIFT,
 				((u64)start_vpfn + nr) << PAGE_SHIFT,
 				nr,
 				(u64)first_pa, (u64)last_pa,
-				flags,
+				flags, flag_str,
 				sample_pte,
 				(u32)((sample_pte >> 8) & 3),
-				(u32)((sample_pte >> 2) & 7),
-				!!(flags & KBASE_REG_SHARE_IN),
-				!!(flags & KBASE_REG_SHARE_BOTH),
-				!!(flags & KBASE_REG_GPU_CACHED));
+				(u32)((sample_pte >> 2) & 7));
+
+			if (seq >= 105 && seq <= 120) {
+				dev_info(kbdev->dev,
+					"[MMU STACK #%d] Call trace for MAP #%d (comm=%s pid=%d tgid=%d kctx=%d):\n",
+					seq, seq, current->comm, current->pid,
+					mmut->kctx ? (int)mmut->kctx->tgid : -1,
+					ctx_id);
+				dump_stack();
+			}
 		}
 	}
 

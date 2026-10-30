@@ -5061,11 +5061,11 @@ void kbase_device_debugfs_term(struct kbase_device *kbdev)
 #endif /* MALI_KBASE_BUILD */
 
 static u32 config_system_coherency = (u32)-1;
-module_param(config_system_coherency, uint, 0444);
+module_param(config_system_coherency, uint, 0644);
 MODULE_PARM_DESC(config_system_coherency, "Override system coherency: 0=ACE_LITE, 1=ACE, 31=NONE");
 
 bool mali_force_coh_none = true;
-module_param(mali_force_coh_none, bool, 0444);
+module_param(mali_force_coh_none, bool, 0644);
 MODULE_PARM_DESC(mali_force_coh_none, "Force coherency mode NONE (31), disable PTW_SH_OS and force strip_share (default: true)");
 
 int kbase_device_coherency_init(struct kbase_device *kbdev)
@@ -5546,6 +5546,18 @@ static int kbase_platform_device_probe(struct platform_device *pdev)
 		dev_info(kbdev->dev,
 			"Probed as %s (JM)\n", dev_name(kbdev->mdev.this_device));
 #endif
+		{
+			extern bool mali_allow_snoop_disparity;
+			extern bool mali_force_dma32;
+			extern bool csf_workaround;
+			extern unsigned int mali_hw_seq_mask;
+			extern unsigned int mali_strip_share;
+
+			dev_info(kbdev->dev,
+				"[KBASE PARAMS] coh_none=%d sys_coh=%u hw_seq_mask=0x%x snoop_disp=%d dma32=%d csf_wa=%d strip_share=%u\n",
+				mali_force_coh_none, config_system_coherency, mali_hw_seq_mask,
+				mali_allow_snoop_disparity, mali_force_dma32, csf_workaround, mali_strip_share);
+		}
 #endif /* MALI_KBASE_BUILD */
 		kbase_increment_device_id();
 #ifdef CONFIG_MALI_ARBITER_SUPPORT

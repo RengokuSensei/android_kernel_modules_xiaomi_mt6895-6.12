@@ -25,6 +25,7 @@
 
 #include <mali_kbase.h>
 #include <gpu/mali_kbase_gpu_fault.h>
+#include <gpu/mali_kbase_gpu_regmap.h>
 #include <mali_kbase_ctx_sched.h>
 #include <mali_kbase_reset_gpu.h>
 #include <mali_kbase_as_fault_debugfs.h>
@@ -550,6 +551,31 @@ static void kbase_mmu_gpu_fault_worker(struct work_struct *data)
 			as_nr, address,
 			as_valid ? "true" : "false",
 			addr_valid ? "true" : "false");
+
+		if (fault_nr <= 10) {
+			u32 l2_mmu_cfg = kbase_reg_read(kbdev, GPU_CONTROL_REG(L2_MMU_CONFIG));
+			u32 sh_cfg = kbase_reg_read(kbdev, GPU_CONTROL_REG(SHADER_CONFIG));
+			u32 til_cfg = kbase_reg_read(kbdev, GPU_CONTROL_REG(TILER_CONFIG));
+			u32 coh_en = kbase_reg_read(kbdev, GPU_CONTROL_REG(COHERENCY_ENABLE));
+			u32 coh_feat = kbase_reg_read(kbdev, GPU_CONTROL_REG(COHERENCY_FEATURES));
+			u32 as_stat = kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_STATUS));
+			u32 as_fault = kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_FAULTSTATUS));
+			u64 as_transtab = (u64)kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_TRANSTAB_LO)) |
+					  ((u64)kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_TRANSTAB_HI)) << 32);
+			u64 as_memattr = (u64)kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_MEMATTR_LO)) |
+					 ((u64)kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_MEMATTR_HI)) << 32);
+			u64 as_transcfg = (u64)kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_TRANSCFG_LO)) |
+					  ((u64)kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_TRANSCFG_HI)) << 32);
+			u64 as_faultextra = (u64)kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_FAULTEXTRA_LO)) |
+					    ((u64)kbase_reg_read(kbdev, MMU_AS_REG(as_nr, AS_FAULTEXTRA_HI)) << 32);
+
+			dev_warn(kbdev->dev,
+				"[CSF FAULT REGS AS%u] L2_MMU_CONFIG=0x%08x (SNOOP_DISPARITY=%d) SHADER_CFG=0x%08x TILER_CFG=0x%08x COH_EN=0x%08x COH_FEAT=0x%08x\n",
+				as_nr, l2_mmu_cfg, !!(l2_mmu_cfg & BIT(23)), sh_cfg, til_cfg, coh_en, coh_feat);
+			dev_warn(kbdev->dev,
+				"[CSF FAULT REGS AS%u] AS_STATUS=0x%08x AS_FAULTSTATUS=0x%08x TRANSTAB=0x%016llx MEMATTR=0x%016llx TRANSCFG=0x%016llx FAULTEXTRA=0x%016llx\n",
+				as_nr, as_stat, as_fault, as_transtab, as_memattr, as_transcfg, as_faultextra);
+		}
 	}
 
 	kctx = kbase_ctx_sched_as_to_ctx(kbdev, as_nr);

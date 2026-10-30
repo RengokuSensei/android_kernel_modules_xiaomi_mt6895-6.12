@@ -2628,8 +2628,15 @@ static int kbase_pm_hw_issues_detect(struct kbase_device *kbdev)
 	return error;
 }
 
+extern bool mali_allow_snoop_disparity;
+
 static void kbase_pm_hw_issues_apply(struct kbase_device *kbdev)
 {
+	u32 mmu_quirks = kbdev->hw_quirks_mmu;
+
+	if (mali_allow_snoop_disparity)
+		mmu_quirks |= L2_MMU_CONFIG_ALLOW_SNOOP_DISPARITY;
+
 	kbase_reg_write(kbdev, GPU_CONTROL_REG(SHADER_CONFIG),
 			kbdev->hw_quirks_sc);
 
@@ -2637,7 +2644,7 @@ static void kbase_pm_hw_issues_apply(struct kbase_device *kbdev)
 			kbdev->hw_quirks_tiler);
 
 	kbase_reg_write(kbdev, GPU_CONTROL_REG(L2_MMU_CONFIG),
-			kbdev->hw_quirks_mmu);
+			mmu_quirks);
 #if MALI_USE_CSF
 	kbase_reg_write(kbdev, GPU_CONTROL_REG(CSF_CONFIG),
 			kbdev->hw_quirks_gpu);

@@ -102,7 +102,7 @@ module_param(csf_patch_size, uint, 0644);
 MODULE_PARM_DESC(csf_patch_size,
 		 "CSF firmware patch size in bytes (2 or 4, default 2)");
 
-static bool csf_workaround = true;
+bool csf_workaround = true;
 module_param(csf_workaround, bool, 0644);
 MODULE_PARM_DESC(csf_workaround,
 		 "Enable guarded CSG 6 firmware workaround (default 1)");

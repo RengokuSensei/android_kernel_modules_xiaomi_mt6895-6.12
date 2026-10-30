@@ -4047,7 +4047,7 @@ static int mtk_gauge_proprietary_init(struct mt6375_priv *priv)
 		return -ENOMEM;
 
 	dev_notice(priv->dev, "%s, before setting psy config (2)\n", __func__);
-	gauge->psy_desc.name = "mt6375-gauge";
+	gauge->psy_desc.name = "mtk-gauge";
 	gauge->name = "fgauge";
 	gauge->psy_desc.type = POWER_SUPPLY_TYPE_UNKNOWN;
 	gauge->psy_desc.properties = gauge_properties;
@@ -4055,7 +4055,7 @@ static int mtk_gauge_proprietary_init(struct mt6375_priv *priv)
 	gauge->psy_desc.get_property = psy_gauge_get_property;
 	gauge->psy_desc.set_property = psy_gauge_set_property;
 	gauge->psy_cfg.drv_data = gauge;
-	gauge->psy = power_supply_register(priv->dev, &gauge->psy_desc, &gauge->psy_cfg);
+	gauge->psy = power_supply_register(NULL, &gauge->psy_desc, &gauge->psy_cfg);
 	if (IS_ERR(gauge->psy))
 		return PTR_ERR(gauge->psy);
 

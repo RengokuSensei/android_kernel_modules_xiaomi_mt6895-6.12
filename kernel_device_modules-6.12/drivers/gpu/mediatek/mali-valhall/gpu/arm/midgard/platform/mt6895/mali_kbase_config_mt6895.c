@@ -64,7 +64,7 @@ bool mali_skip_mcu_on_clk_fail = true;
 module_param(mali_skip_mcu_on_clk_fail, bool, 0644);
 MODULE_PARM_DESC(mali_skip_mcu_on_clk_fail, "Refuse to boot MCU if PLLs or muxes are not verified ready");
 
-static uint mali_hw_seq_mask = 7;
+uint mali_hw_seq_mask = 7;
 module_param(mali_hw_seq_mask, uint, 0644);
 MODULE_PARM_DESC(mali_hw_seq_mask, "Bitmask for stock GPU power-on sequences: bit0=I2M, bit1=DCM, bit2=ACP (default 7)");
 

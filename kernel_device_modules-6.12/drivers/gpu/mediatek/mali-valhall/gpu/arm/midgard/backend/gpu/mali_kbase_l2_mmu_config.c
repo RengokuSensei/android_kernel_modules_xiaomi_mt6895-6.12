@@ -25,6 +25,10 @@
 #include <device/mali_kbase_device.h>
 #include "mali_kbase_l2_mmu_config.h"
 
+bool mali_allow_snoop_disparity = false;
+module_param(mali_allow_snoop_disparity, bool, 0644);
+MODULE_PARM_DESC(mali_allow_snoop_disparity, "Force enable L2_MMU_CONFIG_ALLOW_SNOOP_DISPARITY");
+
 /**
  * struct l2_mmu_config_limit_region
  *
@@ -120,7 +124,8 @@ int kbase_set_mmu_quirks(struct kbase_device *kbdev)
 	kbdev->hw_quirks_mmu = mmu_config;
 
 	if (kbdev->system_coherency == COHERENCY_ACE ||
-	    kbdev->system_coherency == COHERENCY_ACE_LITE) {
+	    kbdev->system_coherency == COHERENCY_ACE_LITE ||
+	    mali_allow_snoop_disparity) {
 		/* Allow memory configuration disparity to be ignored,
 		* we optimize the use of shared memory and thus we
 		* expect some disparity in the memory configuration.
