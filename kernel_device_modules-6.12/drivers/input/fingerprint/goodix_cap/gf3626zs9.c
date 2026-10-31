@@ -347,6 +347,8 @@ static int gf_parse_dts(struct gf_dev *gf_dev)
 	gf_dev->irq_gpio = of_get_named_gpio(np, "fpc,gpio_irq", 0);
 	if (!gpio_is_valid(gf_dev->irq_gpio))
 		gf_dev->irq_gpio = of_get_named_gpio(np, "fp-irq-gpio", 0);
+	if (!gpio_is_valid(gf_dev->irq_gpio))
+		gf_dev->irq_gpio = of_get_named_gpio(np, "goodix,gpio_irq", 0);
 
 	if (gpio_is_valid(gf_dev->irq_gpio)) {
 		ret = gpio_request(gf_dev->irq_gpio, "gf_irq_gpio");
@@ -361,6 +363,8 @@ static int gf_parse_dts(struct gf_dev *gf_dev)
 	}
 
 	gf_dev->reset_gpio = of_get_named_gpio(np, "fp-reset-gpio", 0);
+	if (!gpio_is_valid(gf_dev->reset_gpio))
+		gf_dev->reset_gpio = of_get_named_gpio(np, "goodix,gpio_reset", 0);
 	if (gpio_is_valid(gf_dev->reset_gpio)) {
 		ret = gpio_request(gf_dev->reset_gpio, "gf_reset_gpio");
 		if (ret) {
@@ -583,6 +587,7 @@ static void gf_remove(struct spi_device *spi)
 
 static const struct of_device_id gf_of_match[] = {
 	{ .compatible = "goodix,goodix-fp" },
+	{ .compatible = "mediatek,goodix-fp" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, gf_of_match);
