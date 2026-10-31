@@ -31,6 +31,7 @@ obj-$(CONFIG_MTK_BOARD_THERMAL)		+= board_temp.o
 #obj-$(CONFIG_MTK_THERMAL_TRACE)	+= thermal_trace.o
 obj-$(CONFIG_MTK_THERMAL_IPI)		+= thermal_ipi.o
 obj-$(CONFIG_MTK_THERMAL_INTERFACE)	+= thermal_interface.o
+obj-$(CONFIG_MTK_THERMAL_INTERFACE)	+= mtk_cooling_stub.o
 #obj-$(CONFIG_MTK_VTSKIN_THERMAL)	+= vtskin_temp.o
 obj-$(CONFIG_MTK_FAN_THERMAL)		+= fan_cooling.o
 

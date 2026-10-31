@@ -176,7 +176,11 @@ static irqreturn_t kbase_mmu_irq_handler(int irq, void *data)
 		return IRQ_NONE;
 	}
 
-	dev_err(kbdev->dev, "[CSF DIAG] MMU IRQ fired! irq=%d status=0x%08x\n", irq, val);
+	static atomic_t mmu_irq_fired_count;
+	int mcount = atomic_inc_return(&mmu_irq_fired_count);
+	if (mcount <= 50 || (mcount % 500 == 0)) {
+		dev_err(kbdev->dev, "[CSF DIAG] MMU IRQ fired! irq=%d status=0x%08x count=%d\n", irq, val, mcount);
+	}
 
 	kbase_mmu_interrupt(kbdev, val);
 
@@ -211,7 +215,11 @@ static irqreturn_t kbase_gpu_irq_handler(int irq, void *data)
 	if (!val)
 		return IRQ_NONE;
 
-	dev_info(kbdev->dev, "[CSF DIAG] GPU IRQ fired! irq=%d status=0x%08x\n", irq, val);
+	static atomic_t gpu_irq_fired_count;
+	int gcount = atomic_inc_return(&gpu_irq_fired_count);
+	if (gcount <= 50 || (gcount % 1000 == 0)) {
+		dev_info(kbdev->dev, "[CSF DIAG] GPU IRQ fired! irq=%d status=0x%08x count=%d\n", irq, val, gcount);
+	}
 
 	kbase_gpu_interrupt(kbdev, val);
 
