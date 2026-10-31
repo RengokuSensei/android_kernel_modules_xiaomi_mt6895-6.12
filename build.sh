@@ -514,10 +514,17 @@ for line in lines:
         add = [d for d in extra if d not in deps.split()]
         if add:
             line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
-    # mali_kbase_mt6895.ko must load after memory allocators, ged and mfgcfg clock driver
+    # mali_kbase_mt6895.ko must load after memory allocators, ged, mfgcfg clock driver, and fhctl
     if line.startswith('mali_kbase_mt6895.ko:'):
         deps = line.rstrip('\n').split(':', 1)[1]
-        extra = ['mali_prot_alloc.ko', 'mali_mgm.ko', 'ged.ko', 'clk-mt6895-mfgcfg.ko']
+        extra = ['mali_prot_alloc.ko', 'mali_mgm.ko', 'ged.ko', 'clk-mt6895-mfgcfg.ko', 'fhctl.ko']
+        add = [d for d in extra if d not in deps.split()]
+        if add:
+            line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
+    # mtk_gpufreq_mt6895.ko must load after fhctl.ko for dynamic frequency hopping
+    if line.startswith('mtk_gpufreq_mt6895.ko:'):
+        deps = line.rstrip('\n').split(':', 1)[1]
+        extra = ['fhctl.ko']
         add = [d for d in extra if d not in deps.split()]
         if add:
             line = line.rstrip('\n') + (' ' if deps else '') + ' '.join(add) + '\n'
