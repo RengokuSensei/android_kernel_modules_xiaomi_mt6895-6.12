@@ -14,6 +14,8 @@
 #define MTK_SIP_DVFSRC_START		0x01
 #define VCOREFS_SMC_CMD_PAUSE_ENABLE	0x21
 
+extern void mtk_dvfsrc_reapply_floor(void);
+
 struct mtk_dvfsrc_start {
 	struct device *dev;
 };
@@ -70,6 +72,7 @@ static int mtk_dvfsrc_start_probe(struct platform_device *pdev)
 	dvfsrc_drv = dvfsrc;
 	arm_smccc_smc(MTK_SIP_VCOREFS_CONTROL, MTK_SIP_DVFSRC_START, 0, 0, 0,
 		0, 0, 0, &ares);
+	mtk_dvfsrc_reapply_floor();
 	atomic_notifier_chain_register(&panic_notifier_list, &panic_blk);
 	register_die_notifier(&die_blk);
 

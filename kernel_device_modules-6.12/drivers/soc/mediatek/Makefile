@@ -26,6 +26,7 @@ obj-$(CONFIG_DEVICE_MODULES_MTK_MMSYS_MUTEX) += mtk-mutex.o
 
 # xaga: platform module wiring
 obj-m += mtk-dvfsrc.o
+obj-m += mtk-dvfsrc-start.o
 
 # xaga: platform module wiring
 obj-m += mtk-mbox.o

@@ -122,6 +122,50 @@ struct mtk_dvfsrc {
 	u32  therm_emi_limit;
 };
 
+static struct mtk_dvfsrc *g_dvfsrc;
+static int dram_floor_opp = -1;
+
+static int dram_floor_opp_set(const char *val, const struct kernel_param *kp)
+{
+	int n, ret;
+
+	ret = kstrtoint(val, 10, &n);
+	if (ret)
+		return ret;
+
+	if (n < -1 || n > 15)
+		return -EINVAL;
+
+	dram_floor_opp = n;
+
+	if (g_dvfsrc && g_dvfsrc->dvd && g_dvfsrc->dvd->set_dram_level) {
+		if (n >= 0) {
+			dev_info(g_dvfsrc->dev, "Setting manual DRAM floor OPP %d\n", n);
+			g_dvfsrc->dvd->set_dram_level(g_dvfsrc, (u32)n);
+		} else {
+			dev_info(g_dvfsrc->dev, "Clearing manual DRAM floor OPP\n");
+			g_dvfsrc->dvd->set_dram_level(g_dvfsrc, 0);
+		}
+	}
+	return 0;
+}
+
+static const struct kernel_param_ops dram_floor_opp_ops = {
+	.set = dram_floor_opp_set,
+	.get = param_get_int,
+};
+module_param_cb(dram_floor_opp, &dram_floor_opp_ops, &dram_floor_opp, 0644);
+MODULE_PARM_DESC(dram_floor_opp, "DRAM floor OPP (-1: default/off, 0..8: forced floor level)");
+
+void mtk_dvfsrc_reapply_floor(void)
+{
+	if (g_dvfsrc && dram_floor_opp >= 0 && g_dvfsrc->dvd && g_dvfsrc->dvd->set_dram_level) {
+		dev_info(g_dvfsrc->dev, "Re-applying manual DRAM floor OPP %d after DVFSRC START\n", dram_floor_opp);
+		g_dvfsrc->dvd->set_dram_level(g_dvfsrc, (u32)dram_floor_opp);
+	}
+}
+EXPORT_SYMBOL(mtk_dvfsrc_reapply_floor);
+
 #ifdef DVFSRC_OPP_BW_QUERY
 u32 dram_type;
 static inline struct device_node *dvfsrc_parse_required_opp(
@@ -1706,6 +1750,12 @@ static int mtk_dvfsrc_probe(struct platform_device *pdev)
 
 	dvfsrc->curr_opps = &dvfsrc->dvd->opps_desc[dvfsrc->dram_type];
 	platform_set_drvdata(pdev, dvfsrc);
+	g_dvfsrc = dvfsrc;
+
+	if (dram_floor_opp >= 0 && dvfsrc->dvd->set_dram_level) {
+		dev_info(dvfsrc->dev, "Applying manual DRAM floor OPP %d at probe\n", dram_floor_opp);
+		dvfsrc->dvd->set_dram_level(dvfsrc, (u32)dram_floor_opp);
+	}
 
 	/* DVFSRC IRQ is optional on mt6895: the DTS does not describe one, so
 	 * use platform_get_irq_optional() to avoid the noisy -ENXIO log from
@@ -2397,6 +2447,9 @@ static const struct dvfsrc_soc_data mt6899_data = {
 static void mtk_dvfsrc_remove(struct platform_device *pdev)
 {
 	struct mtk_dvfsrc *dvfsrc = platform_get_drvdata(pdev);
+
+	if (g_dvfsrc == dvfsrc)
+		g_dvfsrc = NULL;
 
 	platform_device_unregister(dvfsrc->regulator);
 	platform_device_unregister(dvfsrc->icc);

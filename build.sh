@@ -681,7 +681,7 @@ EOF
     python3 "$MKBOOTIMG" --vendor_boot "$VD/vendor_boot_new.img" \
         --vendor_ramdisk "$VD/vr_new.lz4" \
         --dtb "$VD/dtb_container.bin" \
-        --vendor_cmdline "bootopt=64S3,32N2,64N2 clk_ignore_unused pd_ignore_unused" \
+        --vendor_cmdline "bootopt=64S3,32N2,64N2 clk_ignore_unused pd_ignore_unused ignore_loglevel" \
         --base 0x40000000 --kernel_offset 0 --ramdisk_offset 0x26f00000 \
         --tags_offset 0x7c80000 --dtb_offset 0x7c80000 \
         --header_version 4 --pagesize 4096 --board "" > "$WORK/vb_mkboot.log" 2>&1
