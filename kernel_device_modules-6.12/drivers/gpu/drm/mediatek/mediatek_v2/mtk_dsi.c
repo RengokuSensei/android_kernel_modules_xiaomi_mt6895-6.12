@@ -75,7 +75,8 @@
 #include "mtk_dsi.h"
 //#include "mtk_reg_disp_bdg.h"
 /* ************end bridge ic ************* */
-#define DSI_SELF_PATTERN
+/* xaga: match working 5.10 driver where DSI_SELF_PATTERN is disabled */
+/* #define DSI_SELF_PATTERN */
 
 int dbg_always_ultra;
 module_param(dbg_always_ultra, int, 0644);
@@ -2018,8 +2019,21 @@ static int mtk_dsi_LTPO_VM_update(struct mtk_dsi *dsi, struct mtk_ddp_comp *comp
 void mtk_dsi_gce_event_cfg(struct mtk_dsi *dsi, struct mtk_ddp_comp *comp,
 		struct cmdq_pkt *handle)
 {
+	struct mtk_drm_private *gpriv = NULL;
+
 	if (comp == NULL) {
 		DDPPR_ERR("%s mtk_ddp_comp is null\n", __func__);
+		return;
+	}
+
+	/* xaga: this is an MT6993-only FIFO-monitor config and must not run on MT6895.
+	 * Gate the function so it restores 5.10 behaviour on MT6895.
+	 */
+	if (dsi->ddp_comp.mtk_crtc && dsi->ddp_comp.mtk_crtc->base.dev)
+		gpriv = dsi->ddp_comp.mtk_crtc->base.dev->dev_private;
+
+	if (!gpriv || gpriv->data->mmsys_id != MMSYS_MT6993) {
+		DDPINFO("%s skipped on non-MT6993\n", __func__);
 		return;
 	}
 

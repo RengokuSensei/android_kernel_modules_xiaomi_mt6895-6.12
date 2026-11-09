@@ -287,6 +287,21 @@ static long ged_dispatch(struct file *pFile,
 			ret = ged_bridge_boost_gpu_freq(pvIn, pvOut);
 			break;
 		case GED_BRIDGE_COMMAND_MONITOR_3D_FENCE:
+			/* xaga: the stock MTK/HyperOS HWC sends the legacy fd-only
+			 * form of this request: a 4-byte int fd in and the
+			 * 20-byte out struct. The native ABI expects a 5xint
+			 * struct GED_BRIDGE_IN_MONITOR3DFENCE. Accept the fd-only shape
+			 * and forward it to ged_monitor_3D_fence_add().
+			 */
+			if (psBridgePackageKM->i32InBufferSize == sizeof(int) &&
+			    psBridgePackageKM->i32OutBufferSize ==
+					sizeof(struct GED_BRIDGE_OUT_MONITOR3DFENCE)) {
+				struct GED_BRIDGE_OUT_MONITOR3DFENCE *out = pvOut;
+
+				out->eError = ged_monitor_3D_fence_add(*(int *)pvIn);
+				ret = 0;
+				break;
+			}
 			VALIDATE_ARG(MONITOR_3D_FENCE, MONITOR3DFENCE);
 			ret = ged_bridge_monitor_3D_fence(pvIn, pvOut);
 			break;

@@ -176,6 +176,11 @@ static struct mtk_drm_property mtk_plane_property[PLANE_PROP_MAX] = {
 	{DRM_MODE_PROP_ATOMIC, "DIRTY_ROI_W", 0, ULONG_MAX, 0},
 	{DRM_MODE_PROP_ATOMIC, "DIRTY_ROI_H", 0, ULONG_MAX, 0},
 	{DRM_MODE_PROP_ATOMIC, "MODE", 0, UINT_MAX, 0},
+	/* xaga: legacy MTK HWC looks these names up verbatim during plane init;
+	 * without them DrmObject::checkProperty() fails and HWC never submits.
+	 */
+	{DRM_MODE_PROP_ATOMIC, "PLANE_PROP_PLANE_ALPHA", 0, 255, 255},
+	{DRM_MODE_PROP_ATOMIC, "PLANE_PROP_ALPHA_CON", 0, 1, 1},
 };
 
 static void mtk_plane_reset(struct drm_plane *plane)
@@ -596,7 +601,7 @@ static void mtk_plane_atomic_update(struct drm_plane *plane,
 		mtk_plane_state->pending.pitch = pitch;
 		mtk_plane_state->pending.format = fb->format->format;
 		mtk_plane_state->pending.addr = (dma_addr_t)(mtk_crtc->mml_ir_sram.data.paddr);
-		mtk_plane_state->pending.modifier = fb->modifier;
+		mtk_plane_state->pending.modifier = mtk_fb_get_modifier(fb);
 		mtk_plane_state->pending.size = pitch  * height;
 		mtk_plane_state->pending.src_x = crtc_state->mml_src_roi[0].x;
 		mtk_plane_state->pending.src_y = crtc_state->mml_src_roi[0].y;
@@ -622,7 +627,7 @@ static void mtk_plane_atomic_update(struct drm_plane *plane,
 		mtk_plane_state->pending.pitch = pitch;
 		mtk_plane_state->pending.format = fb->format->format;
 		mtk_plane_state->pending.addr = 0;
-		mtk_plane_state->pending.modifier = fb->modifier;
+		mtk_plane_state->pending.modifier = mtk_fb_get_modifier(fb);
 		mtk_plane_state->pending.size = pitch  * height;
 		mtk_plane_state->pending.src_x = 0;
 		mtk_plane_state->pending.src_y = 0;
@@ -638,7 +643,7 @@ static void mtk_plane_atomic_update(struct drm_plane *plane,
 		mtk_plane_state->pending.enable = plane_visible;
 		mtk_plane_state->pending.pitch = fb->pitches[0];
 		mtk_plane_state->pending.format = fb->format->format;
-		mtk_plane_state->pending.modifier = fb->modifier;
+		mtk_plane_state->pending.modifier = mtk_fb_get_modifier(fb);
 		if (mtk_plane_state->prop_val[PLANE_PROP_MODE] == MTK_PLANE_REPLACE_LAYER)
 			mtk_plane_state->pending.addr = mtk_crtc->lk_dma_addr;
 		else if (mtk_plane_state->prop_val[PLANE_PROP_MODE] == MTK_PLANE_REPLACE_LAYER_2)

@@ -244,6 +244,11 @@ kbase_devfreq_cur_freq(struct device *dev, unsigned long *freq)
 {
 	struct kbase_device *kbdev = dev_get_drvdata(dev);
 
+	if (unlikely(!kbdev)) {
+		*freq = 0;
+		return -ENODEV;
+	}
+
 	*freq = kbdev->current_nominal_freq;
 
 	return 0;
@@ -254,6 +259,20 @@ kbase_devfreq_status(struct device *dev, struct devfreq_dev_status *stat)
 {
 	struct kbase_device *kbdev = dev_get_drvdata(dev);
 	struct kbasep_pm_metrics diff;
+
+	/* xaga: avoid dereferencing kbdev if devfreq monitor ticks when
+	 * kbdev is NULL or after probe failure.
+	 */
+	if (unlikely(!kbdev)) {
+		static bool warned;
+
+		if (!warned) {
+			warned = true;
+			pr_err("xaga: devfreq monitor fired with NULL kbdev\n");
+		}
+		memset(stat, 0, sizeof(*stat));
+		return -ENODEV;
+	}
 
 	kbase_pm_get_dvfs_metrics(kbdev, &kbdev->last_devfreq_metrics, &diff);
 
@@ -642,6 +661,9 @@ static void kbase_devfreq_work_term(struct kbase_device *kbdev)
 
 int kbase_devfreq_init(struct kbase_device *kbdev)
 {
+	/* xaga: print a fixed greppable string at devfreq init */
+	pr_info("xaga: mali devfreq init - NULL-kbdev guard ACTIVE\n");
+
 	struct devfreq_dev_profile *dp;
 	int err;
 #if !IS_ENABLED(CONFIG_MALI_MTK_DEVFREQ)

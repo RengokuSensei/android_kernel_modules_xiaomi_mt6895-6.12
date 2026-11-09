@@ -94,6 +94,11 @@
 int debug_ct_wait;
 module_param(debug_ct_wait, int, 0644);
 
+/* xaga: gate initial EVENT_CMD_EOF (313) wait so GCE doesn't wedge before DSI frames flow */
+static bool xaga_skip_first_wfe = true;
+module_param(xaga_skip_first_wfe, bool, 0644);
+MODULE_PARM_DESC(xaga_skip_first_wfe, "Skip the first-config FRAME_DONE WFE");
+
 int debug_merge_t = 150;
 module_param(debug_merge_t, int, 0644);
 
@@ -13226,7 +13231,8 @@ skip_prete:
 				output_comp->regs_pa + 0x0C, slot_addr, CMDQ_THR_SPR_IDX3);
 		}
 
-		GCE_DO(wfe, EVENT_CMD_EOF);
+		if (!xaga_skip_first_wfe)
+			GCE_DO(wfe, EVENT_CMD_EOF);
 
 		/* For dbgtp fifo mon WA */
 		if ((priv->data->mmsys_id == MMSYS_MT6993) &&
@@ -13369,14 +13375,16 @@ skip_prete:
 					MTK_DRM_OPT_MSYNC2_0) && params &&
 					params->msync2_enable) {
 				DDPDBG("[Msync]%s, add set vfp period token\n", __func__);
-				GCE_DO(wfe, EVENT_CMD_EOF);
+				if (!xaga_skip_first_wfe)
+					GCE_DO(wfe, EVENT_CMD_EOF);
 				/*clear last SOF*/
 				GCE_DO(clear_event, EVENT_DSI_SOF);
 
 				/*for dynamic Msync on/off,set vfp period token*/
 				GCE_DO(set_event, EVENT_SYNC_TOKEN_VFP_PERIOD);
 			} else {
-				GCE_DO(wait_no_clear, EVENT_CMD_EOF);
+				if (!xaga_skip_first_wfe)
+					GCE_DO(wait_no_clear, EVENT_CMD_EOF);
 				GCE_DO(wfe, EVENT_VDO_CABC_EOF);
 				GCE_DO(clear_event, EVENT_CMD_EOF);
 				GCE_DO(set_event, EVENT_VDO_CABC_EOF);
