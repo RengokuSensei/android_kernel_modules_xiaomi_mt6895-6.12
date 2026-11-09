@@ -2,6 +2,9 @@
 
 > **Porting Status Overview:** See [STATUS.md](STATUS.md).
 > **Real Device Milestone (Run 105 - November 2026):** **Full Linux 6.12 GKI kernel boots into complete Android 16 userspace on POCO X4 GT / Redmi K50i (`xaga` / `xagain`, Dimensity 8100)**! Survived **110 seconds** of continuous Android 16 userspace operation with `init`, `zygote64`, `system_server`, `DisplayManagerService`, `hwcomposer`, and `FBE` userdata decryption fully active on physical hardware.
+> **DVFSRC & Low-Level Clock Alignment (Run 107):** Added `mtk-dvfsrc-start.ko` module, exposed runtime `dram_floor_opp` module parameter callback, and injected `ignore_loglevel` into kernel bootline to prevent log drops during early display and GPU clock transitions.
+> **Packaging & Verification Suite:** Integrated `vrt-check.py` for vendor ramdisk table (VRT) header v4 verification into `build.sh`, added mathematical symbol closure solver (`select-modules.py`), gap auditor (`audit-modules.py`), and device tree overlay fixup tester (`check-dtb.sh`).
+> **Offline Crash Diagnostics:** Integrated the XAGR printk mirror buffer patches (`docs/lk-log-patches/`) targeting the `0x7ffbf000` DRAM log_store region for recovering early-boot panics via `expdb`.
 > **CSF Reset & Firmware Recovery Breakthrough (Run 105):** Eliminated the 17.3-second rwsem lock inversion deadlock between fault worker and reset worker via fast 10ms timeout bypass. Resolved the firmware reload trace buffer hang (`kmap_atomic` virtual memory freeze) via direct `interface->kernel_map` access with memory barriers. GPU soft-reset now succeeds in ~315ms!
 > **Mali Valhall GPU Driver Port:** Arm Mali Valhall CSF driver suite (`mali_kbase_mt6895.ko`, `mali_prot_alloc.ko`, `mali_mgm.ko`) ported from MT6895 stock baseline to Linux 6.12 GKI kernel APIs (`vm_flags_set/clear`, `dma_resv` locking, Kbuild out-of-tree build rules) providing `/dev/mali0` for Android 16 SurfaceFlinger hardware acceleration.
 > **Microtrust Beanpod TEE 520:** Ported to Linux 6.12 GKI, enabling hardware KeyMint and seamless `/data` encryption/decryption at boot.
@@ -50,6 +53,8 @@ As of **Run 105** (November 2026), the porting progress on physical hardware (**
 ## Directory Structure
 
 - `kernel_device_modules-6.12/` — Main module tree (Kleaf/BUILD.bazel + Kbuild dual build paths)
+- `scripts/` — Tooling suite: `vrt-check.py` (VRT validation), `select-modules.py` (symbol closure), `audit-modules.py` (gap audit), `gen-modules-load.py` (topological load order), `check-dtb.sh` (DTBO fixup validation), `live_logger.py`
+- `docs/lk-log-patches/` — Complete XAGR ring buffer patches for early-boot LK log persistence
 - `STATUS.md` — Porting status overview (progress, build steps, known gaps, next steps)
 - `BRINGUP.md` — Bring-up guide (build recipes, power-on sequences, charging/display/touch alignment)
 - `xaga-drm-restore.md` — MTK DRM dependency chain recovery guide
@@ -183,6 +188,9 @@ graph TD
 | **Camera Sensor Build Rules** | 6 xaga camera sensor drivers registered in Kbuild & Bazel build systems (Closes #6) |
 | **Documentation** | Fully translated to English (`STATUS.md`, `BRINGUP.md`, `xaga-drm-restore.md`, `xaga-log-capture.md`) |
 | **110s Device Uptime Milestone (Run 105)** | Verified on physical hardware: survived 110s continuous Android 16 uptime under active RenderEngine load |
+| **DVFSRC & Clock Alignment (Run 107)** | Added `mtk-dvfsrc-start.ko`, exposed runtime `dram_floor_opp` module parameter, and injected `ignore_loglevel` |
+| **Packaging & Verification Suite** | Integrated `vrt-check.py` into `build.sh` (validates header v4 VRT offsets & legacy LZ4 streams); added `select-modules.py`, `audit-modules.py`, and `check-dtb.sh` |
+| **XAGR Early LK Crash Persistence** | Preserved full patchset (`0001`–`0005`) in `docs/lk-log-patches/` for `0x7ffbf000` DRAM log_store recovery via `expdb` |
 | **CSF Reset Deadlock Resolution (Run 105)** | Eliminated 17.3s rwsem lock inversion between fault worker and reset worker via 10ms timeout bypass |
 | **Firmware Reload Recovery (Run 105)** | Fixed `kmap_atomic` virtual memory freeze in trace buffer reload via direct mapping & `dmb(ish)` memory barriers |
 | **GPUEB & FHCTL Parity (Run 102-103)** | Resolved GPUEB 4-element stride mismatch and clock FHCTL probe deferral & memory caching |

@@ -714,6 +714,10 @@ EOF
     fi
     cp "$VD/vendor_boot_new.img" "$OUT_IMG/vendor_boot_new.img"
     ls -la "$OUT_IMG/vendor_boot_new.img"
+    python3 "$SCRIPT_DIR/scripts/vrt-check.py" "$OUT_IMG/vendor_boot_new.img" || {
+        echo "ERROR: vrt-check verification failed on vendor_boot_new.img!" >&2
+        exit 1
+    }
 }
 
 # ---------------------------------------------------------------------------

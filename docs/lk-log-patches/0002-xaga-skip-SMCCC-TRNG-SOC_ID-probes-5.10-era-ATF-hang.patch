@@ -1,0 +1,64 @@
+From c2ae5f6174a0c071555b9999fea15f7e47516499 Mon Sep 17 00:00:00 2001
+From: zhaoqing412 <zhaoqing412@qq.com>
+Date: Mon, 10 Aug 2026 12:39:24 +0800
+Subject: [PATCH 2/5] xaga: skip SMCCC TRNG/SOC_ID probes (5.10-era ATF hangs
+ on them)
+
+The xaga boot chain (MT6895, 5.10-era LK/ATF) predates the SMCCC TRNG
+(0x84000050) and SOC_ID (0x80000001/0x80000002) fastcalls; the 5.10 xaga
+kernels never issued them. On 6.12, arm_smccc_version_init() probes both
+from setup_arch (via psci_dt_init) and the secure world hangs on the
+unknown fastcall, watchdog-rebooting before the kernel is up.
+
+Guard the probes behind CONFIG_TARGET_PRODUCT_XAGA (set only by the xaga
+defconfig fragment): skip them on xaga builds, keep them everywhere else.
+smccc_trng_available stays false, so runtime SMCCC TRNG reads are not
+issued either. Other OPPO devices are unaffected.
+---
+ drivers/firmware/smccc/smccc.c | 30 +++++++++++++++++++-----------
+ 1 file changed, 19 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/firmware/smccc/smccc.c b/drivers/firmware/smccc/smccc.c
+index a74600d9f..0e468d8dd 100644
+--- a/drivers/firmware/smccc/smccc.c
++++ b/drivers/firmware/smccc/smccc.c
+@@ -26,17 +26,25 @@ void __init arm_smccc_version_init(u32 version, enum arm_smccc_conduit conduit)
+ 	smccc_version = version;
+ 	smccc_conduit = conduit;
+ 
+-	smccc_trng_available = smccc_probe_trng();
+-
+-	if ((smccc_version >= ARM_SMCCC_VERSION_1_2) &&
+-	    (smccc_conduit != SMCCC_CONDUIT_NONE)) {
+-		arm_smccc_1_1_invoke(ARM_SMCCC_ARCH_FEATURES_FUNC_ID,
+-				     ARM_SMCCC_ARCH_SOC_ID, &res);
+-		if ((s32)res.a0 >= 0) {
+-			arm_smccc_1_1_invoke(ARM_SMCCC_ARCH_SOC_ID, 0, &res);
+-			smccc_soc_id_version = (s32)res.a0;
+-			arm_smccc_1_1_invoke(ARM_SMCCC_ARCH_SOC_ID, 1, &res);
+-			smccc_soc_id_revision = (s32)res.a0;
++	/* xaga's 5.10-era ATF predates the SMCCC TRNG (0x84000050) and
++	 * SOC_ID (0x80000001/0x80000002) fastcalls; probing them hangs the
++	 * secure world (unknown SMC -> watchdog reboot) so the kernel never
++	 * got past setup_arch. Skip the probes on xaga builds; the 5.10 xaga
++	 * kernels never issued these calls. smccc_trng_available stays false,
++	 * which also keeps runtime SMCCC TRNG reads from firing. */
++	if (!IS_ENABLED(CONFIG_TARGET_PRODUCT_XAGA)) {
++		smccc_trng_available = smccc_probe_trng();
++
++		if ((smccc_version >= ARM_SMCCC_VERSION_1_2) &&
++		    (smccc_conduit != SMCCC_CONDUIT_NONE)) {
++			arm_smccc_1_1_invoke(ARM_SMCCC_ARCH_FEATURES_FUNC_ID,
++					     ARM_SMCCC_ARCH_SOC_ID, &res);
++			if ((s32)res.a0 >= 0) {
++				arm_smccc_1_1_invoke(ARM_SMCCC_ARCH_SOC_ID, 0, &res);
++				smccc_soc_id_version = (s32)res.a0;
++				arm_smccc_1_1_invoke(ARM_SMCCC_ARCH_SOC_ID, 1, &res);
++				smccc_soc_id_revision = (s32)res.a0;
++			}
+ 		}
+ 	}
+ }
+-- 
+2.51.0
+

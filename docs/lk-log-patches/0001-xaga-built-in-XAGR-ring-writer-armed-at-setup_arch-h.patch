@@ -1,0 +1,312 @@
+From c3bf6dda510c9f73357bd2385b31896e0f164f10 Mon Sep 17 00:00:00 2001
+From: zhaoqing412 <zhaoqing412@qq.com>
+Date: Mon, 10 Aug 2026 11:52:04 +0800
+Subject: [PATCH 1/5] xaga: built-in XAGR ring writer, armed at setup_arch
+ head, mirrors printk
+
+The xaga-marker-writer module (vendor ramdisk, modules.load first) never
+wrote the XAGR ring on device - never confirmed loaded. Replace it with a
+built-in writer so the ring is armed before anything else can go wrong:
+
+- drivers/misc/xaga-marker-writer.c (CONFIG_XAGA_MARKER_WRITER=y, set by
+  the xaga defconfig fragment only): early_ioremap()s the log_store
+  reserved region (0x7ffbf000, survives the AP watchdog reboot in DRAM)
+  from the head of arm64 setup_arch - the earliest point the MMU fixmap
+  maps it (before paging_init the region has no mapping at all) - and
+  resets magic/cursor/total/stage.
+- kernel/printk/printk.c: vprintk_emit() mirrors every printk() into the
+  ring (va_copy + vscnprintf, no locks/alloc, safe in any printk context),
+  so whatever the kernel prints from setup_arch on is the ring tail left
+  behind by a boot hang. The legacy early_printk() path is dead on arm64
+  (no CONFIG_EARLY_PRINTK Kconfig, early_console never set), so the
+  vprintk_emit hook is the real early-print stream.
+- module-load notifier kept: a hang in a vendor module probe still leaves
+  that module's name as the last ring entry.
+
+Read back by the xaga-marker reader in the lineage_xaga kernel on the
+next boot.
+---
+ arch/arm64/kernel/setup.c         |   5 +
+ drivers/misc/Kconfig              |  16 +++
+ drivers/misc/Makefile             |   1 +
+ drivers/misc/xaga-marker-writer.c | 161 ++++++++++++++++++++++++++++++
+ include/linux/xaga_marker.h       |  18 ++++
+ kernel/printk/printk.c            |   5 +
+ 6 files changed, 206 insertions(+)
+ create mode 100644 drivers/misc/xaga-marker-writer.c
+ create mode 100644 include/linux/xaga_marker.h
+
+diff --git a/arch/arm64/kernel/setup.c b/arch/arm64/kernel/setup.c
+index 87f61fd67..0d5301fd1 100644
+--- a/arch/arm64/kernel/setup.c
++++ b/arch/arm64/kernel/setup.c
+@@ -32,6 +32,7 @@
+ #include <linux/sched/task.h>
+ #include <linux/scs.h>
+ #include <linux/mm.h>
++#include <linux/xaga_marker.h>
+ 
+ #include <asm/acpi.h>
+ #include <asm/fixmap.h>
+@@ -290,6 +291,10 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
+ 	early_fixmap_init();
+ 	early_ioremap_init();
+ 
++	/* Earliest point the fixmap maps the xaga log_store ring (0x7ffbf000);
++	 * from here on every printk() is mirrored into it. */
++	xaga_marker_early_init();
++
+ 	setup_machine_fdt(__fdt_pointer);
+ 
+ 	/*
+diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
+index 5018db96c..52e3cd8ff 100644
+--- a/drivers/misc/Kconfig
++++ b/drivers/misc/Kconfig
+@@ -645,4 +645,20 @@ source "drivers/misc/uacce/Kconfig"
+ source "drivers/misc/pvpanic/Kconfig"
+ source "drivers/misc/mchp_pci1xxxx/Kconfig"
+ source "drivers/misc/keba/Kconfig"
++
++config XAGA_MARKER_WRITER
++	bool "xaga boot-stage marker writer (XAGR ring)"
++	depends on ARM64
++	help
++	  xaga (Redmi Note 11T Pro / POCO X4 GT / Redmi K50i, MT6895) boot
++	  trace writer. Armed at the head of arm64 setup_arch (the earliest
++	  point the MMU maps the region) and mirrors every printk() into a
++	  circular XAGR ring in the log_store reserved DRAM region
++	  (0x7ffbf000), which survives an AP watchdog reboot and is dumped by
++	  the xaga-marker reader in the lineage_xaga kernel on the next boot,
++	  so a boot hang can be located even when the kernel dies before any
++	  console is up.
++
++	  Only the xaga defconfig fragment enables this; leave it off for
++	  other devices.
+ endmenu
+diff --git a/drivers/misc/Makefile b/drivers/misc/Makefile
+index a43fcbe55..b0b7c5ad6 100644
+--- a/drivers/misc/Makefile
++++ b/drivers/misc/Makefile
+@@ -74,3 +74,4 @@ obj-$(CONFIG_MARVELL_CN10K_DPI)	+= mrvl_cn10k_dpi.o
+ obj-y				+= keba/
+ obj-$(CONFIG_UID_SYS_STATS)	+= uid_sys_stats.o
+ obj-$(CONFIG_PKVM_SMC_FILTER)  += pkvm-smc/
++obj-$(CONFIG_XAGA_MARKER_WRITER) += xaga-marker-writer.o
+diff --git a/drivers/misc/xaga-marker-writer.c b/drivers/misc/xaga-marker-writer.c
+new file mode 100644
+index 000000000..71c2fd400
+--- /dev/null
++++ b/drivers/misc/xaga-marker-writer.c
+@@ -0,0 +1,161 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * xaga boot-stage marker writer (XAGR ring), built into the kernel.
++ *
++ * xaga (Redmi Note 11T Pro / POCO X4 GT / Redmi K50i, MT6895) boot trace.
++ * Arms a 64KB "XAGR" header + circular text ring in the log_store reserved
++ * DRAM region (0x7ffbf000) at the head of arm64 setup_arch - the earliest
++ * point the arm64 MMU fixmap makes the region writable - and mirrors every
++ * printk() (via vprintk_emit) into the ring. Markers survive an AP watchdog
++ * reboot in DRAM; the xaga-marker reader built into the lineage_xaga kernel
++ * prints them on the next boot, so a boot hang can be located even when the
++ * kernel dies before the ramoops console is up.
++ *
++ * Layout matches the reader (lineage_xaga drivers/misc/xaga-marker.c):
++ *   u32 magic @0x0000, u32 cursor @0x0004, u32 total @0x0008,
++ *   u32 stage @0x1000, text ring @0x2000 (0xE000 bytes).
++ *
++ * The ring lives in log_store (0x7ffbf000), NOT minirdump (0x48170000):
++ * writing minirdump triggers MTK's mrdump machinery and reboots the device
++ * immediately (device findings 2026-08-09). log_store is a non-secure
++ * reserved area not managed by mrdump/aee.
++ *
++ * Built-in (it was a module until the vendor-ramdisk module never wrote -
++ * never confirmed loaded): CONFIG_XAGA_MARKER_WRITER is set only by the xaga
++ * defconfig fragment; other OPPO devices leave it off. The module-load
++ * notifier still logs every later module load, so a hang in a vendor module
++ * probe leaves that module's name as the last ring entry.
++ */
++#include <linux/init.h>
++#include <linux/io.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/notifier.h>
++#include <linux/printk.h>
++#include <linux/xaga_marker.h>
++
++/* log_store reserved region: non-secure, survives the WDT reboot in DRAM */
++#define XAGA_MRDUMP_PA	0x7ffbf000UL
++#define XAGA_MRDUMP_SZ	0x10000UL
++#define XAGA_RING_OFF	0x2000U
++#define XAGA_RING_SZ	0xE000U
++#define XAGA_MAGIC	0x52474158UL	/* "XAGR" */
++#define XAGA_MAX_MSG	256
++
++static void __iomem *xaga_mr_base;
++
++static void xaga_marker_ring_write(const char *buf, int n)
++{
++	void __iomem *ring;
++	u32 cursor;
++	int i;
++
++	if (!xaga_mr_base)
++		return;
++	/* Re-assert our magic on every write: MTK aee/mrdump_mini may rewrite
++	 * the region header; the next write restores it. */
++	writel(XAGA_MAGIC, xaga_mr_base + 0x0000);
++	cursor = readl(xaga_mr_base + 0x0004);
++	ring = xaga_mr_base + XAGA_RING_OFF;
++	for (i = 0; i < n; i++)
++		writeb(buf[i], ring + ((cursor + i) % XAGA_RING_SZ));
++	writel(cursor + n, xaga_mr_base + 0x0004);
++	writel(readl(xaga_mr_base + 0x0008) + n, xaga_mr_base + 0x0008);
++}
++
++void xaga_marker_put(const char *fmt, ...)
++{
++	va_list args;
++	char buf[XAGA_MAX_MSG];
++	int n;
++
++	va_start(args, fmt);
++	n = vscnprintf(buf, sizeof(buf), fmt, args);
++	va_end(args);
++	if (n <= 0)
++		return;
++	xaga_marker_ring_write(buf, n);
++}
++EXPORT_SYMBOL_GPL(xaga_marker_put);
++
++void xaga_marker_stage(u32 stage)
++{
++	if (!xaga_mr_base)
++		return;
++	writel(stage, xaga_mr_base + 0x1000);
++	xaga_marker_put("stage=%u\n", stage);
++}
++EXPORT_SYMBOL_GPL(xaga_marker_stage);
++
++/* Mirrors every printk() into the ring while armed; called from
++ * vprintk_emit. Must be safe in any printk context: no printk, no locks, no
++ * allocation. The ring is lock-free: concurrent writers may occasionally
++ * interleave, acceptable for a diagnostic ring. */
++void xaga_marker_early_printk(const char *fmt, va_list args)
++{
++	va_list ap;
++	char buf[XAGA_MAX_MSG];
++	int n;
++
++	if (!xaga_mr_base)
++		return;
++	va_copy(ap, args);
++	n = vscnprintf(buf, sizeof(buf), fmt, ap);
++	va_end(ap);
++	if (n <= 0)
++		return;
++	xaga_marker_ring_write(buf, n);
++}
++
++/* Called from the head of arm64 setup_arch, right after
++ * early_fixmap_init()/early_ioremap_init() - the earliest point the arm64
++ * MMU maps the reserved region (it is not in the linear map before
++ * paging_init). Everything printed from here on lands in the ring. */
++void __init xaga_marker_early_init(void)
++{
++	xaga_mr_base = early_ioremap(XAGA_MRDUMP_PA, XAGA_MRDUMP_SZ);
++	if (!xaga_mr_base) {
++		pr_info("xaga-marker-writer: early_ioremap 0x%08lx failed\n",
++			XAGA_MRDUMP_PA);
++		return;
++	}
++	/* fresh ring per boot: only the last boot's markers survive */
++	writel(XAGA_MAGIC, xaga_mr_base + 0x0000);
++	writel(0, xaga_mr_base + 0x0004);
++	writel(0, xaga_mr_base + 0x0008);
++	writel(0, xaga_mr_base + 0x1000);
++	pr_info("xaga-marker-writer: XAGR ring armed at 0x%08lx\n",
++		XAGA_MRDUMP_PA);
++	xaga_marker_stage(1);
++}
++
++static int xaga_marker_module_nb(struct notifier_block *nb,
++				 unsigned long action, void *data)
++{
++	struct module *mod = data;
++
++	switch (action) {
++	case MODULE_STATE_COMING:
++	case MODULE_STATE_LIVE:
++		xaga_marker_put("module: %s\n", mod->name);
++		break;
++	default:
++		break;
++	}
++	return NOTIFY_OK;
++}
++
++static struct notifier_block xaga_marker_nb = {
++	.notifier_call = xaga_marker_module_nb,
++};
++
++static int __init xaga_marker_w_late_init(void)
++{
++	xaga_marker_put("marker writer built-in init\n");
++	register_module_notifier(&xaga_marker_nb);
++	return 0;
++}
++core_initcall(xaga_marker_w_late_init);
++
++MODULE_LICENSE("GPL");
++MODULE_DESCRIPTION("xaga boot-stage marker writer (XAGR ring), built-in");
+diff --git a/include/linux/xaga_marker.h b/include/linux/xaga_marker.h
+new file mode 100644
+index 000000000..977a5aab1
+--- /dev/null
++++ b/include/linux/xaga_marker.h
+@@ -0,0 +1,18 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef _LINUX_XAGA_MARKER_H
++#define _LINUX_XAGA_MARKER_H
++
++#include <linux/stdarg.h>
++#include <linux/types.h>
++
++#ifdef CONFIG_XAGA_MARKER_WRITER
++void xaga_marker_early_init(void);
++void xaga_marker_stage(u32 stage);
++void xaga_marker_early_printk(const char *fmt, va_list args);
++#else
++static inline void xaga_marker_early_init(void) { }
++static inline void xaga_marker_stage(u32 stage) { }
++static inline void xaga_marker_early_printk(const char *fmt, va_list args) { }
++#endif
++
++#endif /* _LINUX_XAGA_MARKER_H */
+diff --git a/kernel/printk/printk.c b/kernel/printk/printk.c
+index 866874983..725534666 100644
+--- a/kernel/printk/printk.c
++++ b/kernel/printk/printk.c
+@@ -45,6 +45,7 @@
+ #include <linux/irq_work.h>
+ #include <linux/ctype.h>
+ #include <linux/uio.h>
++#include <linux/xaga_marker.h>
+ #include <linux/sched/clock.h>
+ #include <linux/sched/debug.h>
+ #include <linux/sched/task_stack.h>
+@@ -2457,6 +2458,10 @@ asmlinkage int vprintk_emit(int facility, int level,
+ 	struct console_flush_type ft;
+ 	int printed_len;
+ 
++	/* Mirror the early printk stream into the xaga XAGR ring (log_store,
++	 * survives a watchdog reboot). No-op unless armed at setup_arch head. */
++	xaga_marker_early_printk(fmt, args);
++
+ 	/* Suppress unimportant messages after panic happens */
+ 	if (unlikely(suppress_printk))
+ 		return 0;
+-- 
+2.51.0
+

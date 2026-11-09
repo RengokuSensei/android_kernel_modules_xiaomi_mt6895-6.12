@@ -1,0 +1,47 @@
+From 84a4857b177767eeef32da4d2135a8236088241d Mon Sep 17 00:00:00 2001
+From: zhaoqing412 <zhaoqing412@qq.com>
+Date: Mon, 10 Aug 2026 15:38:12 +0800
+Subject: [PATCH 5/5] xaga: add MIRROR heartbeat to the printk mirror
+
+Every 64th mirrored printk also writes a MIRROR:n line into the XAGR ring.
+LK's log_store recovery dumps the ring into expdb on the next boot, so the
+heartbeat proves the vprintk_emit mirror is live and that the kernel log
+stream reaches LK's expdb (verified on device 2026-08-10: MIRROR:64..576
+present in expdb next to the ring text).
+---
+ drivers/misc/xaga-marker-writer.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/misc/xaga-marker-writer.c b/drivers/misc/xaga-marker-writer.c
+index 71c2fd400..23be6f576 100644
+--- a/drivers/misc/xaga-marker-writer.c
++++ b/drivers/misc/xaga-marker-writer.c
+@@ -90,7 +90,11 @@ EXPORT_SYMBOL_GPL(xaga_marker_stage);
+ /* Mirrors every printk() into the ring while armed; called from
+  * vprintk_emit. Must be safe in any printk context: no printk, no locks, no
+  * allocation. The ring is lock-free: concurrent writers may occasionally
+- * interleave, acceptable for a diagnostic ring. */
++ * interleave, acceptable for a diagnostic ring. Every 64th message also
++ * writes a MIRROR:n heartbeat so the LK log_store recovery (which dumps
++ * this region into expdb on the next boot) proves the mirror is live. */
++static unsigned int xaga_mirror_cnt;
++
+ void xaga_marker_early_printk(const char *fmt, va_list args)
+ {
+ 	va_list ap;
+@@ -105,6 +109,12 @@ void xaga_marker_early_printk(const char *fmt, va_list args)
+ 	if (n <= 0)
+ 		return;
+ 	xaga_marker_ring_write(buf, n);
++	if (++xaga_mirror_cnt % 64 == 0) {
++		char hb[32];
++		int hn = snprintf(hb, sizeof(hb), "MIRROR:%u\n", xaga_mirror_cnt);
++
++		xaga_marker_ring_write(hb, hn);
++	}
+ }
+ 
+ /* Called from the head of arm64 setup_arch, right after
+-- 
+2.51.0
+
